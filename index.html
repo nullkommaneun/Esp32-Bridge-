@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stapler KI Radar</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: #fff; text-align: center; padding: 20px; }
+        #status { padding: 10px; background: #444; margin-bottom: 20px; border-radius: 8px; }
+        .danger-box { width: 100%; height: 200px; background: green; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 3em; font-weight: bold; transition: background 0.2s; }
+        .info { font-size: 0.9em; color: #aaa; margin-top: 10px; }
+        button { padding: 15px 30px; font-size: 1.2em; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h1>Stapler KI Radar</h1>
+    <div id="status">Nicht verbunden</div>
+    <button onclick="connectBLE()">Mit ESP32 verbinden</button>
+    
+    <br><br>
+    
+    <div id="visualizer" class="danger-box">SAFE</div>
+    <div class="info">Bewegung (IMU): <span id="imu-val">0</span></div>
+    <div class="info">Max RSSI: <span id="rssi-val">-</span></div>
+
+    <script>
+        // --- KONFIGURATION ---
+        const serviceUuid = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const charUuid = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+        // --- KI VARIABLEN ---
+        let kalmanRSSI = -100; // Startwert
+        let P = 1.0; // Kovarianz (Unsicherheit)
+        const Q = 0.1; // Prozessrauschen (Wie sehr trauen wir der Berechnung)
+        const R = 4.0; // Messrauschen (Wie sehr zappelt das Signal)
+        
+        let lastImuMotion = 0;
+        let highestRssi = -100;
+
+        // --- IMU (BEWEGUNGSSENSOR) ---
+        if (window.DeviceMotionEvent) {
+            window.addEventListener('devicemotion', event => {
+                let acc = event.accelerationIncludingGravity;
+                if(acc) {
+                    // Einfache Berechnung der Gesamtbewegung
+                    let total = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
+                    // Den normalen 1G (Erdbeschleunigung) abziehen, wir wollen nur Wackeln
+                    lastImuMotion = Math.abs(total - 9.81);
+                    document.getElementById('imu-val').innerText = lastImuMotion.toFixed(2);
+                }
+            });
+        }
+
+        // --- KALMAN FILTER FUNKTION ---
+        function updateKalman(measurement) {
+            // Vorhersage
+            let predictedRSSI = kalmanRSSI;
+            let predictedP = P + Q;
+
+            // Korrektur (Update)
+            let K = predictedP / (predictedP + R); // Kalman Gain
+            kalmanRSSI = predictedRSSI + K * (measurement - predictedRSSI);
+            P = (1 - K) * predictedP;
+            
+            return kalmanRSSI;
+        }
+
+        // --- BLE LOGIK ---
+        async function connectBLE() {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [serviceUuid] }]
+                });
+                
+                document.getElementById('status').innerText = "Verbinde...";
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(serviceUuid);
+                const characteristic = await service.getCharacteristic(charUuid);
+
+                await characteristic.startNotifications();
+                
+                characteristic.addEventListener('characteristicvaluechanged', handleData);
+                document.getElementById('status').innerText = "Verbunden! Scanner aktiv.";
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerText = "Fehler: " + error;
+            }
+        }
+
+        function handleData(event) {
+            const value = new TextDecoder().decode(event.target.value);
+            // Format: "MAC|RSSI"
+            const parts = value.split("|");
+            const rawRssi = parseInt(parts[1]);
+
+            // 1. Filtern (Kalman)
+            let smoothRssi = updateKalman(rawRssi);
+            document.getElementById('rssi-val').innerText = smoothRssi.toFixed(1) + " dBm";
+
+            // 2. Entscheidungs-Logik (Die eigentliche "KI")
+            assessDanger(smoothRssi, lastImuMotion);
+        }
+
+        function assessDanger(rssi, motion) {
+            const box = document.getElementById('visualizer');
+            
+            // DYNAMISCHE SCHWELLENWERTE
+            // Wenn Stapler steht (Motion < 1.0), sind wir toleranter.
+            // Wenn Stapler fährt (Motion > 2.0), warnen wir früher.
+            
+            let warningThreshold = (motion > 2.0) ? -75 : -65;
+            let dangerThreshold = (motion > 2.0) ? -60 : -50;
+
+            if (rssi > dangerThreshold) {
+                box.style.background = "red";
+                box.innerText = "STOP!!";
+                // Optional: Handy vibrieren lassen
+                if(navigator.vibrate) navigator.vibrate(200); 
+            } else if (rssi > warningThreshold) {
+                box.style.background = "orange";
+                box.innerText = "WARNUNG";
+            } else {
+                box.style.background = "green";
+                box.innerText = "SAFE";
+            }
+        }
+    </script>
+</body>
+</html>
