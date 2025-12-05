@@ -20,12 +20,16 @@
 
     <div class="container">
         <header>
-            <div class="brand"><span class="icon">🧠</span> AI NEURAL GUARD</div>
-            <div id="connection-dot" class="dot-red"></div> </header>
+            <div class="brand"><span class="icon">🧠</span> AI GUARD</div>
+            
+            <button id="header-btn" onclick="app.connect()">STARTEN</button>
+            
+            <div id="connection-dot" class="dot-red"></div> 
+        </header>
 
         <div id="status-display" class="status-safe">
             <div id="main-status-text">OFFLINE</div>
-            <div id="ai-reason">System starten...</div>
+            <div id="ai-reason">Warte auf Start...</div>
         </div>
 
         <div class="grid-stats">
@@ -36,12 +40,10 @@
             <div class="card">
                 <div class="label">AI Fehler (Loss)</div>
                 <div class="value" id="val-loss">0.00</div>
-                <div class="sub-label">Aktuell</div>
             </div>
             <div class="card">
                 <div class="label">AI Limit</div>
                 <div class="value" id="val-thresh">0.00</div>
-                <div class="sub-label">Erlaubte Toleranz</div>
             </div>
         </div>
 
@@ -52,15 +54,15 @@
 
     <div id="debug-panel">
         <div class="debug-header">
-            <span>NEURAL NETWORK INSPECTOR</span>
+            <span>NETWORK INSPECTOR</span>
             <button onclick="copyLog()" class="mini-btn">COPY LOG</button>
         </div>
-        <div id="console-output">Warte auf Verbindung...</div>
+        <div id="console-output">System bereit. Drücke STARTEN.</div>
     </div>
 
     <script src="script.js"></script>
     <script>
-        // Global Error Handling & Logging Tools
+        // Error Handler
         window.onerror = function(msg, url, line) {
             log(`CRITICAL ERROR: ${msg} (Line ${line})`, 'error');
         };
@@ -70,7 +72,7 @@
             let color = '#aaa';
             if(type === 'error') color = '#ff0055';
             if(type === 'success') color = '#0f0';
-            if(type === 'ai') color = '#00d2ff'; // Blau für KI-Gedanken
+            if(type === 'ai') color = '#00d2ff';
             
             el.innerHTML += `<div style="color:${color}; border-bottom:1px solid #222;">[${time}] ${msg}</div>`;
             el.scrollTop = el.scrollHeight;
