@@ -3,202 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KI Lern-Heatmap</title>
+    <title>Stapler AI Guard</title>
+    
+    <link rel="stylesheet" href="style.css">
+    
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        body { font-family: 'Courier New', monospace; background: #000; color: #0f0; padding: 10px; margin: 0; }
-        
-        /* Oben: Der Status */
-        #top-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
-        button { background: #0f0; color: #000; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; }
-        
-        /* Mitte: Die Heatmap */
-        .chart-container { position: relative; height: 60vh; width: 100%; border: 1px solid #222; background: #050505; }
-        
-        /* Unten: Log */
-        #log { height: 20vh; overflow-y: auto; font-size: 0.8em; color: #555; border-top: 1px solid #333; padding-top: 5px; }
-
-        /* Legende */
-        .legend { display: flex; gap: 15px; justify-content: center; margin-bottom: 5px; font-size: 0.8em; }
-        .dot { height: 10px; width: 10px; display: inline-block; border-radius: 50%; margin-right: 5px; }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 </head>
 <body>
 
-    <div id="top-bar">
-        <div>KI STATUS: <span id="status-text">OFFLINE</span></div>
-        <button onclick="connectBLE()">VERBINDEN & LERNEN</button>
+    <div class="container">
+        <header>
+            <div class="brand">
+                <span class="icon">👁‍🗨</span> AI GUARD <span style="font-size:0.5em; color:#666;">v3.0 TF.js</span>
+            </div>
+            <button id="btn-connect" onclick="app.connect()">SYSTEM STARTEN</button>
+        </header>
+
+        <div id="status-display" class="status-safe">
+            <div id="main-status-text">OFFLINE</div>
+            <div id="ai-reason">Warte auf Daten...</div>
+        </div>
+
+        <div class="grid-stats">
+            <div class="card">
+                <div class="label">Objekte im Scan</div>
+                <div class="value" id="val-objects">0</div>
+            </div>
+            <div class="card">
+                <div class="label">Max Signal</div>
+                <div class="value" id="val-rssi">--</div>
+            </div>
+            <div class="card">
+                <div class="label">Annäherungs-Speed</div>
+                <div class="value" id="val-velocity">0.0</div>
+            </div>
+        </div>
+
+        <div class="chart-box">
+            <canvas id="radarChart"></canvas>
+        </div>
+        
+        <div id="log-panel"></div>
     </div>
 
-    <div class="legend">
-        <span><span class="dot" style="background:red;"></span>Unbekannt (Gefahr)</span>
-        <span><span class="dot" style="background:orange;"></span>Lerne...</span>
-        <span><span class="dot" style="background:blue;"></span>Infrastruktur (Sicher)</span>
-    </div>
-
-    <div class="chart-container">
-        <canvas id="heatmapChart"></canvas>
-    </div>
-
-    <div id="log">System bereit. Warte auf Input...</div>
-
+    <script src="script.js"></script>
     <script>
-        // --- KONFIGURATION ---
-        const serviceUuid = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-        const charUuid = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-
-        // --- DAS GEDÄCHTNIS DER KI ---
-        // Hier speichern wir alles, was wir je gesehen haben
-        let memory = {}; 
-        /* Struktur eines Eintrags:
-           "MAC_ADRESSE": {
-               seenCount: 100,      // Wie oft gesehen?
-               firstSeen: 1234567,  // Wann zuerst?
-               lastRssi: -60,       // Letzter Wert
-               trustLevel: 0.0      // 0 = Neu/Gefahr, 1 = Bekannt/Sicher
-           }
-        */
-
-        // --- CHART JS SETUP (BUBBLE CHART ALS HEATMAP) ---
-        const ctx = document.getElementById('heatmapChart').getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'bubble',
-            data: {
-                datasets: [{
-                    label: 'Umgebungs-Scan',
-                    data: [], // Hier kommen die Punkte rein
-                    backgroundColor: context => {
-                        // DYNAMISCHE FARBE BASIEREND AUF VERTRAUEN
-                        const val = context.raw?.trust; 
-                        if (val > 0.8) return 'rgba(0, 100, 255, 0.6)'; // Blau (Sicher)
-                        if (val > 0.3) return 'rgba(255, 165, 0, 0.8)'; // Orange (Lernt)
-                        return 'rgba(255, 0, 0, 0.9)';                  // Rot (Gefahr)
-                    },
-                    borderColor: 'transparent'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: { duration: 0 }, // Performance!
-                scales: {
-                    y: {
-                        min: -100, max: -20,
-                        title: { display: true, text: 'Signalstärke (Nähe)', color: '#555' },
-                        grid: { color: '#222' },
-                        ticks: { color: '#0f0' }
-                    },
-                    x: {
-                        display: false, // X-Achse verstecken (ist nur zur Verteilung)
-                        min: 0, max: 100
-                    }
-                },
-                plugins: { legend: { display: false } }
-            }
-        });
-
-        // --- HILFSFUNKTION: Hash für X-Achse ---
-        // Wir verteilen die Geräte zufällig auf der X-Achse basierend auf ihrer MAC,
-        // damit sie nicht alle übereinander liegen.
-        function simpleHash(str) {
-            let hash = 0;
-            for (let i = 0; i < str.length; i++) {
-                hash = (hash << 5) - hash + str.charCodeAt(i);
-                hash |= 0;
-            }
-            return Math.abs(hash % 100);
-        }
-
-        // --- BLE LOGIK ---
-        async function connectBLE() {
-            try {
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [serviceUuid] }]
-                });
-                const server = await device.gatt.connect();
-                const service = await server.getPrimaryService(serviceUuid);
-                const characteristic = await service.getCharacteristic(charUuid);
-                await characteristic.startNotifications();
-                characteristic.addEventListener('characteristicvaluechanged', handleData);
-                
-                document.getElementById('status-text').innerText = "SCANNT & LERNT...";
-                document.getElementById('status-text').style.color = "#0f0";
-                log("Verbunden! Heatmap baut sich auf...");
-            } catch (e) { log("Fehler: " + e); }
-        }
-
-        function handleData(event) {
-            const val = new TextDecoder().decode(event.target.value);
-            const [mac, rssiStr] = val.split("|");
-            const rssi = parseInt(rssiStr);
-
-            updateMemory(mac, rssi);
-            updateVisuals();
-        }
-
-        // --- DER LERN-ALGORITHMUS ---
-        function updateMemory(mac, rssi) {
-            const now = Date.now();
-
-            if (!memory[mac]) {
-                // NEUES GERÄT ENTDECKT!
-                memory[mac] = {
-                    x: simpleHash(mac), // Feste Position auf X-Achse
-                    seenCount: 1,
-                    firstSeen: now,
-                    lastRssi: rssi,
-                    trust: 0.0 // Startet bei 0 (Misstrauisch)
-                };
-                log(`Neu: ${mac} (${rssi}dB)`);
-            } else {
-                // BEKANNTES GERÄT UPDATE
-                memory[mac].seenCount++;
-                memory[mac].lastRssi = rssi; // Nur den aktuellsten Wert nehmen
-                
-                // LERNKURVE:
-                // Je öfter wir es sehen, desto mehr vertrauen wir (Infrastruktur)
-                // Aber: Wenn es plötzlich extrem stark wird (-40dB), sinkt das Vertrauen sofort!
-                
-                if (rssi > -45) {
-                    // Annäherungs-Alarm! Vertrauen sinkt temporär, damit es ROT wird
-                    memory[mac].trust = 0.1; 
-                } else {
-                    // Langsames Lernen (maximal bis 1.0)
-                    if (memory[mac].trust < 1.0) {
-                        memory[mac].trust += 0.05; 
-                    }
-                }
-            }
-        }
-
-        // --- VISUALISIERUNG UPDATE ---
-        // Wird regelmäßig aufgerufen, nicht bei jedem Paket (spart CPU)
-        setInterval(updateVisuals, 200); 
-
-        function updateVisuals() {
-            const dataset = [];
-            
-            for (const mac in memory) {
-                const dev = memory[mac];
-                
-                // Wir zeichnen einen Punkt für das Gerät
-                dataset.push({
-                    x: dev.x,
-                    y: dev.lastRssi,
-                    r: (dev.lastRssi > -50) ? 15 : 6, // Radius: Groß wenn nah, klein wenn fern
-                    trust: dev.trust // Für die Farbe
-                });
-            }
-            
-            chart.data.datasets[0].data = dataset;
-            chart.update();
-        }
-
-        function log(msg) {
-            const el = document.getElementById('log');
-            el.innerHTML = `> ${msg}<br>` + el.innerHTML;
-        }
+        // Startet die App, sobald die Seite geladen ist
+        const app = new StaplerApp();
     </script>
 </body>
 </html>
- 
