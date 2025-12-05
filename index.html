@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stapler AI Guard Pro</title>
+    <title>Stapler AI Guard ULTIMATE</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
@@ -12,60 +12,61 @@
 
     <div id="offline-overlay" class="hidden">
         <div class="offline-box">
-            <h1>⚠️ SIGNAL VERLOREN</h1>
-            <p>Keine Daten vom ESP32.</p>
-            <button onclick="app.reconnect()">NEU VERBINDEN</button>
+            <h1>⚠️ SYSTEM OFFLINE</h1>
+            <button onclick="app.reconnect()">NEUSTART</button>
         </div>
     </div>
 
     <div class="container">
         <header>
-            <div class="brand"><span class="icon">🧠</span> AI GUARD</div>
-            
-            <button id="header-btn" onclick="app.connect()">STARTEN</button>
-            
+            <div class="brand"><span class="icon">🧬</span> AI FUSION CORE</div>
+            <button id="header-btn" onclick="app.startSystem()">STARTEN</button>
             <div id="connection-dot" class="dot-red"></div> 
         </header>
 
         <div id="status-display" class="status-safe">
-            <div id="main-status-text">OFFLINE</div>
+            <div id="main-status-text">BEREIT</div>
             <div id="ai-reason">Warte auf Start...</div>
         </div>
 
+        <button id="btn-false-alarm" onclick="app.reportFalseAlarm()">✋ DAS WAR EIN FEHLALARM!</button>
+
         <div class="grid-stats">
             <div class="card">
-                <div class="label">Objekte</div>
+                <div class="label">Objekte (Scan)</div>
                 <div class="value" id="val-objects">0</div>
             </div>
             <div class="card">
-                <div class="label">AI Fehler (Loss)</div>
-                <div class="value" id="val-loss">0.00</div>
+                <div class="label">Lärm (Audio)</div>
+                <div class="value" id="val-audio">0 %</div>
             </div>
             <div class="card">
-                <div class="label">AI Limit</div>
-                <div class="value" id="val-thresh">0.00</div>
+                <div class="label">Vibration</div>
+                <div class="value" id="val-motion">0.0 G</div>
             </div>
         </div>
 
-        <div class="chart-box">
+        <div class="chart-box" style="height: 25vh;">
             <canvas id="radarChart"></canvas>
+        </div>
+
+        <div class="chart-header">🧠 NEURAL NETWORK ACTIVITY (LOSS)</div>
+        <div class="chart-box" style="height: 15vh; border-top:none;">
+            <canvas id="lossChart"></canvas>
         </div>
     </div>
 
     <div id="debug-panel">
         <div class="debug-header">
-            <span>NETWORK INSPECTOR</span>
+            <span>FULL SPECTRUM INSPECTOR</span>
             <button onclick="copyLog()" class="mini-btn">COPY LOG</button>
         </div>
-        <div id="console-output">System bereit. Drücke STARTEN.</div>
+        <div id="console-output">System initialisiert.</div>
     </div>
 
     <script src="script.js"></script>
     <script>
-        // Error Handler
-        window.onerror = function(msg, url, line) {
-            log(`CRITICAL ERROR: ${msg} (Line ${line})`, 'error');
-        };
+        window.onerror = function(msg, url, line) { log(`ERR: ${msg} (${line})`, 'error'); };
         function log(msg, type = 'info') {
             const el = document.getElementById('console-output');
             const time = new Date().toLocaleTimeString();
@@ -73,15 +74,12 @@
             if(type === 'error') color = '#ff0055';
             if(type === 'success') color = '#0f0';
             if(type === 'ai') color = '#00d2ff';
+            if(type === 'learning') color = '#ffaa00';
             
             el.innerHTML += `<div style="color:${color}; border-bottom:1px solid #222;">[${time}] ${msg}</div>`;
             el.scrollTop = el.scrollHeight;
         }
-        function copyLog() {
-            navigator.clipboard.writeText(document.getElementById('console-output').innerText);
-            alert("Log kopiert!");
-        }
-        
+        function copyLog() { navigator.clipboard.writeText(document.getElementById('console-output').innerText); alert("Log kopiert!"); }
         const app = new StaplerApp();
     </script>
 </body>
