@@ -1,0 +1,71 @@
+:root {
+    --bg-color: #050505;
+    --card-bg: #1a1a1a;
+    --text-main: #e0e0e0;
+    --accent-blue: #00d2ff;
+    --status-safe: #00c853;
+    --status-warn: #ffab00;
+    --status-danger: #ff1744;
+}
+
+body {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    margin: 0;
+    padding: 10px;
+    height: 100vh;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* Header */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #333;
+}
+.brand { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; }
+button {
+    background: transparent;
+    border: 1px solid var(--accent-blue);
+    color: var(--accent-blue);
+    padding: 8px 16px;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+button:hover { background: var(--accent-blue); color: #000; }
+
+/* Status Display (Die große Ampel) */
+#status-display {
+    text-align: center;
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    transition: background-color 0.3s ease;
+    border: 2px solid #333;
+}
+#main-status-text { font-size: 3rem; font-weight: 900; letter-spacing: 2px; }
+#ai-reason { font-family: monospace; color: rgba(255,255,255,0.7); margin-top: 5px; }
+
+/* Status Farben Klassen */
+.status-safe { background-color: rgba(0, 200, 83, 0.1); border-color: var(--status-safe) !important; color: var(--status-safe); }
+.status-warn { background-color: rgba(255, 171, 0, 0.1); border-color: var(--status-warn) !important; color: var(--status-warn); }
+.status-danger { background-color: rgba(255, 23, 68, 0.2); border-color: var(--status-danger) !important; color: var(--status-danger); animation: pulse 0.5s infinite alternate; }
+
+/* Stats Grid */
+.grid-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+.card { background: var(--card-bg); padding: 10px; border-radius: 8px; text-align: center; }
+.label { font-size: 0.7rem; color: #888; text-transform: uppercase; }
+.value { font-size: 1.2rem; font-weight: bold; font-family: monospace; }
+
+/* Chart Area */
+.chart-box { height: 35vh; width: 100%; position: relative; }
+
+/* Animation für Gefahr */
+@keyframes pulse { from { box-shadow: 0 0 10px var(--status-danger); } to { box-shadow: 0 0 30px var(--status-danger); } }
