@@ -3,39 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stapler AI Guard</title>
+    <title>Stapler AI Guard + DEBUG</title>
     
     <link rel="stylesheet" href="style.css">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
 </head>
 <body>
 
     <div class="container">
         <header>
             <div class="brand">
-                <span class="icon">👁‍🗨</span> AI GUARD <span style="font-size:0.5em; color:#666;">v3.0 TF.js</span>
+                <span class="icon">🤖</span> AI GUARD <span style="font-size:0.5em;">NO-FILTER MODE</span>
             </div>
-            <button id="btn-connect" onclick="app.connect()">SYSTEM STARTEN</button>
+            <button id="btn-connect" onclick="app.connect()">VERBINDEN (ALLE)</button>
         </header>
 
         <div id="status-display" class="status-safe">
             <div id="main-status-text">OFFLINE</div>
-            <div id="ai-reason">Warte auf Daten...</div>
+            <div id="ai-reason">Warte auf Verbindung...</div>
         </div>
 
         <div class="grid-stats">
             <div class="card">
-                <div class="label">Objekte im Scan</div>
+                <div class="label">Geräte</div>
                 <div class="value" id="val-objects">0</div>
             </div>
             <div class="card">
-                <div class="label">Max Signal</div>
+                <div class="label">Max RSSI</div>
                 <div class="value" id="val-rssi">--</div>
             </div>
             <div class="card">
-                <div class="label">Annäherungs-Speed</div>
+                <div class="label">Trend</div>
                 <div class="value" id="val-velocity">0.0</div>
             </div>
         </div>
@@ -43,13 +43,46 @@
         <div class="chart-box">
             <canvas id="radarChart"></canvas>
         </div>
-        
-        <div id="log-panel"></div>
     </div>
 
+    <div id="debug-panel">
+        <div class="debug-header">
+            <span>SYSTEM PROTOKOLL</span>
+            <button onclick="copyLog()" class="mini-btn">📋 KOPIEREN</button>
+        </div>
+        <div id="console-output">System bereit. Warte auf User...</div>
+    </div>
+
+    <script>
+        // GLOBAL ERROR HANDLER (Fängt alles ab!)
+        window.onerror = function(message, source, lineno, colno, error) {
+            const output = document.getElementById('console-output');
+            const time = new Date().toLocaleTimeString();
+            output.innerHTML += `<div class="log-err">[${time}] CRITICAL: ${message} (Line: ${lineno})</div>`;
+            output.scrollTop = output.scrollHeight; // Auto-Scroll
+            return false;
+        };
+
+        // Hilfsfunktion für manuelles Logging
+        function log(msg, type = 'info') {
+            const output = document.getElementById('console-output');
+            const time = new Date().toLocaleTimeString();
+            const colorClass = type === 'error' ? 'log-err' : (type === 'success' ? 'log-ok' : 'log-info');
+            output.innerHTML += `<div class="${colorClass}">[${time}] ${msg}</div>`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function copyLog() {
+            const text = document.getElementById('console-output').innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                alert("Log in Zwischenablage kopiert!");
+            }).catch(err => {
+                alert("Fehler beim Kopieren: " + err);
+            });
+        }
+    </script>
     <script src="script.js"></script>
     <script>
-        // Startet die App, sobald die Seite geladen ist
         const app = new StaplerApp();
     </script>
 </body>
