@@ -1,94 +1,61 @@
 // --- KONFIGURATION ---
+// Muss exakt mit deinem ESP32 übereinstimmen!
 const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-const CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+const CHAR_UUID =    "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-/**
- * KLASSE: DeviceBrain
- * Repräsentiert ein einzelnes Gerät (Handy/Router) und seine KI-Analyse
- */
 class DeviceBrain {
     constructor(mac) {
         this.mac = mac;
-        this.rssiBuffer = []; // Speichert die letzten Werte
-        this.maxBufferSize = 15; 
+        this.rssiBuffer = [];
         this.lastSeen = Date.now();
-        this.trustScore = 0.5; // 0 = Gefahr, 1 = Vertrauen
-        this.prediction = 0; // Was denkt die KI, wo das Signal gleich ist?
-        this.velocity = 0;   // Berechnete Geschwindigkeit
+        this.trustScore = 0.5;
+        this.velocity = 0;
+        this.xPos = Math.random() * 100;
     }
 
     addMeasurement(rssi) {
         this.lastSeen = Date.now();
         this.rssiBuffer.push(rssi);
-        if (this.rssiBuffer.length > this.maxBufferSize) this.rssiBuffer.shift();
-        
-        // KI Berechnung anstoßen
+        if (this.rssiBuffer.length > 15) this.rssiBuffer.shift();
         this.calculateMetrics();
     }
 
-    // Hier nutzen wir TensorFlow Logic (simuliert durch native Math für Performance, 
-    // kann auf tf.tensor umgestellt werden bei komplexeren Modellen)
     calculateMetrics() {
         if (this.rssiBuffer.length < 5) return;
-
-        // 1. Lineare Regression (Trendberechnung)
-        // Wir suchen die Steigung (Slope) der Kurve.
-        // Steigung > 0 bedeutet: Signal wird stärker (kommt näher)
+        
+        // Simple lineare Regression
         const n = this.rssiBuffer.length;
         let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-        
-        // Wir mappen die Zeit auf x (0, 1, 2...) und RSSI auf y
         for (let i = 0; i < n; i++) {
             sumX += i;
             sumY += this.rssiBuffer[i];
             sumXY += i * this.rssiBuffer[i];
             sumXX += i * i;
         }
-
         const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-        this.velocity = slope; // dB pro Zeiteinheit
-
-        // 2. Varianz (Rauschen) berechnen
         const avg = sumY / n;
-        const variance = this.rssiBuffer.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / n;
-
-        // 3. KI Entscheidung (Rule-based based on features)
-        this.updateTrust(avg, slope, variance);
-    }
-
-    updateTrust(avgRssi, slope, variance) {
-        // Logik:
-        // - Hohe Varianz (> 10) = Bewegt sich (Mensch/Handy)
-        // - Niedrige Varianz (< 2) = Statisch (Router)
-        // - Hoher Slope (> 0.5) = Schnelle Annäherung
         
-        // Infrastruktur lernen
-        if (variance < 3.0 && avgRssi < -50) {
-            this.trustScore = Math.min(this.trustScore + 0.05, 1.0); // Vertrauen steigt langsam
-        }
-
-        // Akute Gefahr erkennen
-        if (slope > 1.0 || avgRssi > -45) {
-            this.trustScore = 0.0; // Vertrauen sofort weg
+        this.velocity = slope;
+        
+        // KI Logik
+        if (slope > 0.8 || avg > -45) {
+            this.trustScore = 0.0; // GEFAHR
+        } else if (avg < -60 && Math.abs(slope) < 0.2) {
+            this.trustScore += 0.05; // Vertrauen aufbauen
+            if(this.trustScore > 1.0) this.trustScore = 1.0;
         }
     }
 }
 
-/**
- * KLASSE: StaplerApp
- * Verwaltet die UI, Bluetooth Verbindung und alle DeviceBrains
- */
 class StaplerApp {
     constructor() {
-        this.devices = {}; // Map von MAC -> DeviceBrain
+        this.devices = {};
         this.chart = this.initChart();
         this.isScanning = false;
-        
-        // Loop für UI Updates starten (entkoppelt vom Datenempfang)
         setInterval(() => this.updateUI(), 200);
+        log("App initialisiert. Bereit zum Verbinden.");
     }
 
-    // --- CHART JS SETUP ---
     initChart() {
         const ctx = document.getElementById('radarChart').getContext('2d');
         return new Chart(ctx, {
@@ -111,124 +78,148 @@ class StaplerApp {
         });
     }
 
-    // --- BLUETOOTH ---
+    // --- BLUETOOTH CORE (SIMPLIFIED) ---
     async connect() {
         try {
+            log("Starte Bluetooth Suche (Alle Geräte)...");
+            
+            // 1. Suche OHNE Filter (zeigt alles an)
+            // WICHTIG: optionalServices muss gesetzt sein, sonst können wir später nicht lesen!
             const device = await navigator.bluetooth.requestDevice({
-                filters: [{ services: [SERVICE_UUID] }]
+                acceptAllDevices: true,
+                optionalServices: [SERVICE_UUID] 
             });
+
+            log(`Gerät gewählt: ${device.name} (ID: ${device.id})`);
+            log("Verbinde mit GATT Server...");
+
             const server = await device.gatt.connect();
+            log("GATT verbunden. Suche Service...");
+
             const service = await server.getPrimaryService(SERVICE_UUID);
+            log("Service gefunden! Suche Characteristic...");
+
             const characteristic = await service.getCharacteristic(CHAR_UUID);
+            log("Characteristic gefunden! Starte Notifications...");
+
             await characteristic.startNotifications();
             characteristic.addEventListener('characteristicvaluechanged', (e) => this.handleData(e));
             
             this.isScanning = true;
-            document.getElementById('btn-connect').innerText = "SYSTEM AKTIV";
-            document.getElementById('btn-connect').style.borderColor = "#00c853";
-            document.getElementById('btn-connect').style.color = "#00c853";
+            document.getElementById('btn-connect').innerText = "VERBUNDEN";
+            document.getElementById('btn-connect').style.borderColor = "#0f0";
+            log("ERFOLG: Scanner läuft!", "success");
+
         } catch (e) {
+            // Ausführliche Fehlermeldung für den Debugger
+            log(`FEHLER BEIM VERBINDEN: ${e.message}`, "error");
             console.error(e);
-            alert("Verbindung fehlgeschlagen: " + e);
+            
+            if(e.name === 'NotFoundError') {
+                log("Tipp: Hast du das richtige Gerät in der Liste ausgewählt?");
+                log("Tipp: Läuft der ESP32? Leuchtet er?");
+            } else if (e.name === 'SecurityError') {
+                log("Sicherheits-Fehler! Nutze Chrome und HTTPS (Github Pages).");
+            }
         }
     }
 
     handleData(event) {
-        const val = new TextDecoder().decode(event.target.value);
-        const [mac, rssiStr] = val.split("|");
-        const rssi = parseInt(rssiStr);
+        try {
+            const val = new TextDecoder().decode(event.target.value);
+            // Wir erwarten: "MAC|RSSI"
+            const parts = val.split("|");
+            
+            if(parts.length !== 2) {
+                // Falls Datenmüll kommt, nicht crashen, nur loggen
+                // log("Ignoriere fehlerhaftes Paket: " + val); 
+                return;
+            }
 
-        if (!this.devices[mac]) {
-            this.devices[mac] = new DeviceBrain(mac);
-            // Zufalls X-Position generieren für Chart
-            this.devices[mac].xPos = Math.random() * 100;
+            const mac = parts[0];
+            const rssi = parseInt(parts[1]);
+
+            if (!this.devices[mac]) {
+                this.devices[mac] = new DeviceBrain(mac);
+                log(`Neues Signal: ${mac}`, "info");
+            }
+            
+            this.devices[mac].addMeasurement(rssi);
+        } catch(err) {
+            log("Parsing Fehler: " + err.message, "error");
         }
-        
-        this.devices[mac].addMeasurement(rssi);
     }
 
-    // --- UI LOGIK ---
     updateUI() {
         if(!this.isScanning) return;
 
         const chartData = [];
-        let maxRisk = 0; // 0 = Safe, 1 = Warn, 2 = Danger
+        let maxRisk = 0; 
         let highestRssi = -100;
         let highestVelocity = 0;
-        let objectCount = 0;
         const now = Date.now();
 
-        // Alle Geräte durchgehen
         for (const mac in this.devices) {
             const dev = this.devices[mac];
-
-            // Timeout: Wer 5 sek nichts sendet, wird ignoriert
             if (now - dev.lastSeen > 5000) continue;
             
-            objectCount++;
             if (dev.rssiBuffer.length === 0) continue;
             const currentRssi = dev.rssiBuffer[dev.rssiBuffer.length-1];
 
-            // Globale Stats updaten
             if (currentRssi > highestRssi) highestRssi = currentRssi;
             if (dev.velocity > highestVelocity) highestVelocity = dev.velocity;
 
-            // Gefahr bewerten
-            let risk = 0; // Safe
-            if (dev.trustScore < 0.2) risk = 1; // Unbekannt
-            if (dev.trustScore < 0.1 && (dev.velocity > 0.8 || currentRssi > -50)) risk = 2; // Danger!
+            let risk = 0; 
+            if (dev.trustScore < 0.2) risk = 1; 
+            if (dev.trustScore < 0.1 && (dev.velocity > 0.8 || currentRssi > -50)) risk = 2; 
 
             if (risk > maxRisk) maxRisk = risk;
 
-            // Chart Daten
             chartData.push({
                 x: dev.xPos,
                 y: currentRssi,
-                r: (risk === 2) ? 20 : (risk === 1 ? 10 : 5), // Radius
+                r: (risk === 2) ? 20 : 8,
                 riskLevel: risk 
             });
         }
 
-        // Chart Update
         this.chart.data.datasets[0].data = chartData;
         this.chart.update();
 
-        // Dashboard Werte Update
-        document.getElementById('val-objects').innerText = objectCount;
-        document.getElementById('val-rssi').innerText = highestRssi + " dB";
+        document.getElementById('val-objects').innerText = chartData.length;
+        document.getElementById('val-rssi').innerText = highestRssi;
         document.getElementById('val-velocity').innerText = highestVelocity.toFixed(2);
 
-        // Ampel Logik
-        this.setMainStatus(maxRisk, highestRssi, highestVelocity);
+        this.setMainStatus(maxRisk);
     }
 
-    setMainStatus(riskLevel, rssi, velocity) {
+    setMainStatus(riskLevel) {
         const display = document.getElementById('status-display');
         const text = document.getElementById('main-status-text');
         const reason = document.getElementById('ai-reason');
 
-        // Reset Classes
         display.className = "";
-
         if (riskLevel === 2) {
             display.classList.add('status-danger');
             text.innerText = "STOP!!";
-            reason.innerText = `Kollisionskurs! (Speed: ${velocity.toFixed(1)})`;
+            reason.innerText = "Kollisionskurs erkannt!";
             if(navigator.vibrate) navigator.vibrate(200);
         } else if (riskLevel === 1) {
-            display.classList.add('status-warn');
+            display.classList.add('status-safe'); // Warnung ist auch "safe" genug für den Anfang
+            display.style.borderColor = "orange";
+            display.style.color = "orange";
             text.innerText = "ACHTUNG";
-            reason.innerText = "Unbekanntes Objekt nah";
+            reason.innerText = "Unbekanntes Objekt";
         } else {
             display.classList.add('status-safe');
             text.innerText = "FREI";
-            reason.innerText = "Scan läuft. Umgebung bekannt.";
+            reason.innerText = "Bereich sicher.";
         }
     }
 
     getColor(item) {
-        if (item.riskLevel === 2) return 'rgba(255, 23, 68, 0.9)'; // Rot
-        if (item.riskLevel === 1) return 'rgba(255, 171, 0, 0.8)'; // Orange
-        return 'rgba(0, 200, 83, 0.6)'; // Grün
+        if (item.riskLevel === 2) return 'rgba(255, 0, 85, 0.9)'; 
+        if (item.riskLevel === 1) return 'rgba(255, 170, 0, 0.8)'; 
+        return 'rgba(0, 255, 0, 0.6)'; 
     }
 }
