@@ -3,40 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stapler AI Guard + DEBUG</title>
-    
+    <title>Stapler AI Guard Pro</title>
     <link rel="stylesheet" href="style.css">
-    
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
 </head>
 <body>
 
+    <div id="offline-overlay" class="hidden">
+        <div class="offline-box">
+            <h1>⚠️ SIGNAL VERLOREN</h1>
+            <p>Keine Daten vom ESP32.</p>
+            <button onclick="app.reconnect()">NEU VERBINDEN</button>
+        </div>
+    </div>
+
     <div class="container">
         <header>
-            <div class="brand">
-                <span class="icon">🤖</span> AI GUARD <span style="font-size:0.5em;">NO-FILTER MODE</span>
-            </div>
-            <button id="btn-connect" onclick="app.connect()">VERBINDEN (ALLE)</button>
-        </header>
+            <div class="brand"><span class="icon">🧠</span> AI NEURAL GUARD</div>
+            <div id="connection-dot" class="dot-red"></div> </header>
 
         <div id="status-display" class="status-safe">
             <div id="main-status-text">OFFLINE</div>
-            <div id="ai-reason">Warte auf Verbindung...</div>
+            <div id="ai-reason">System starten...</div>
         </div>
 
         <div class="grid-stats">
             <div class="card">
-                <div class="label">Geräte</div>
+                <div class="label">Objekte</div>
                 <div class="value" id="val-objects">0</div>
             </div>
             <div class="card">
-                <div class="label">Max RSSI</div>
-                <div class="value" id="val-rssi">--</div>
+                <div class="label">AI Fehler (Loss)</div>
+                <div class="value" id="val-loss">0.00</div>
+                <div class="sub-label">Aktuell</div>
             </div>
             <div class="card">
-                <div class="label">Trend</div>
-                <div class="value" id="val-velocity">0.0</div>
+                <div class="label">AI Limit</div>
+                <div class="value" id="val-thresh">0.00</div>
+                <div class="sub-label">Erlaubte Toleranz</div>
             </div>
         </div>
 
@@ -47,42 +52,34 @@
 
     <div id="debug-panel">
         <div class="debug-header">
-            <span>SYSTEM PROTOKOLL</span>
-            <button onclick="copyLog()" class="mini-btn">📋 KOPIEREN</button>
+            <span>NEURAL NETWORK INSPECTOR</span>
+            <button onclick="copyLog()" class="mini-btn">COPY LOG</button>
         </div>
-        <div id="console-output">System bereit. Warte auf User...</div>
+        <div id="console-output">Warte auf Verbindung...</div>
     </div>
 
-    <script>
-        // GLOBAL ERROR HANDLER (Fängt alles ab!)
-        window.onerror = function(message, source, lineno, colno, error) {
-            const output = document.getElementById('console-output');
-            const time = new Date().toLocaleTimeString();
-            output.innerHTML += `<div class="log-err">[${time}] CRITICAL: ${message} (Line: ${lineno})</div>`;
-            output.scrollTop = output.scrollHeight; // Auto-Scroll
-            return false;
-        };
-
-        // Hilfsfunktion für manuelles Logging
-        function log(msg, type = 'info') {
-            const output = document.getElementById('console-output');
-            const time = new Date().toLocaleTimeString();
-            const colorClass = type === 'error' ? 'log-err' : (type === 'success' ? 'log-ok' : 'log-info');
-            output.innerHTML += `<div class="${colorClass}">[${time}] ${msg}</div>`;
-            output.scrollTop = output.scrollHeight;
-        }
-
-        function copyLog() {
-            const text = document.getElementById('console-output').innerText;
-            navigator.clipboard.writeText(text).then(() => {
-                alert("Log in Zwischenablage kopiert!");
-            }).catch(err => {
-                alert("Fehler beim Kopieren: " + err);
-            });
-        }
-    </script>
     <script src="script.js"></script>
     <script>
+        // Global Error Handling & Logging Tools
+        window.onerror = function(msg, url, line) {
+            log(`CRITICAL ERROR: ${msg} (Line ${line})`, 'error');
+        };
+        function log(msg, type = 'info') {
+            const el = document.getElementById('console-output');
+            const time = new Date().toLocaleTimeString();
+            let color = '#aaa';
+            if(type === 'error') color = '#ff0055';
+            if(type === 'success') color = '#0f0';
+            if(type === 'ai') color = '#00d2ff'; // Blau für KI-Gedanken
+            
+            el.innerHTML += `<div style="color:${color}; border-bottom:1px solid #222;">[${time}] ${msg}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+        function copyLog() {
+            navigator.clipboard.writeText(document.getElementById('console-output').innerText);
+            alert("Log kopiert!");
+        }
+        
         const app = new StaplerApp();
     </script>
 </body>
