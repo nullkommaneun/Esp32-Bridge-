@@ -1,252 +1,391 @@
+/* * STAPLER AI CORE v2.0 - "DEEP FUSION"
+ * Architektur: Gatekeeper -> Context Mixer -> Autoencoder (24-16-8-16-24) -> Decision Engine
+ */
+
 const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
 const CHAR_UUID =    "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-class AudioSensor {
-    constructor() { this.vol=0; this.active=false; }
-    async start() {
+// --- 1. HARDWARE ABSTRACTION LAYER (Sensoren) ---
+class SensorManager {
+    constructor() {
+        this.acc = 0; this.gyro = 0; this.audio = 0;
+        this.initMotion();
+        this.initAudio();
+    }
+
+    initMotion() {
+        if (window.DeviceMotionEvent) {
+            window.addEventListener('devicemotion', e => {
+                const a = e.accelerationIncludingGravity;
+                const r = e.rotationRate;
+                if(a) {
+                    // Wir glätten die Werte (Low Pass Filter), um Rauschen zu entfernen
+                    const totalA = Math.sqrt(a.x**2 + a.y**2 + a.z**2);
+                    this.acc = (this.acc * 0.8) + (Math.abs(totalA - 9.8) * 0.2);
+                }
+                if(r) {
+                    const totalR = Math.abs(r.alpha) + Math.abs(r.beta) + Math.abs(r.gamma);
+                    this.gyro = (this.gyro * 0.8) + (totalR * 0.2);
+                }
+            });
+        }
+    }
+
+    async initAudio() {
         try {
-            const s = await navigator.mediaDevices.getUserMedia({audio:true});
-            const c = new AudioContext(), src = c.createMediaStreamSource(s), ana = c.createAnalyser();
-            const sc = c.createScriptProcessor(2048,1,1);
-            src.connect(ana); ana.connect(sc); sc.connect(c.destination);
-            sc.onaudioprocess=()=>{
-                const d=new Uint8Array(ana.frequencyBinCount); ana.getByteFrequencyData(d);
-                let sm=0; for(let i of d) sm+=i; this.vol=sm/d.length; this.active=true;
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const ctx = new AudioContext();
+            const src = ctx.createMediaStreamSource(stream);
+            const ana = ctx.createAnalyser(); ana.fftSize = 256;
+            const sc = ctx.createScriptProcessor(2048, 1, 1);
+            src.connect(ana); ana.connect(sc); sc.connect(ctx.destination);
+            sc.onaudioprocess = () => {
+                const data = new Uint8Array(ana.frequencyBinCount);
+                ana.getByteFrequencyData(data);
+                let sum = 0; for(let x of data) sum+=x;
+                this.audio = sum / data.length; // 0-255
             };
-            log("Mikrofon OK.", "success");
-        } catch(e) { log("Mic Fehler: "+e.message, "error"); }
+        } catch(e) { console.warn("Audio nicht verfügbar"); }
     }
-    getLevel() { return this.active?this.vol:0; }
+
+    // Liefert normalisierte Werte (0.0 - 1.0) für die KI
+    getNormalized() {
+        return {
+            acc: Math.min(this.acc / 2.0, 1.0),      // 0-2G
+            gyro: Math.min(this.gyro / 100.0, 1.0),  // 0-100 deg/s
+            audio: Math.min(this.audio / 100.0, 1.0) // 0-100 Volume
+        };
+    }
 }
 
-class MotionSensor {
-    constructor() { this.acc=0; this.gyro=0; 
-        if(window.DeviceMotionEvent) window.addEventListener('devicemotion',e=>{
-            const a=e.accelerationIncludingGravity, r=e.rotationRate;
-            if(a) this.acc=(this.acc*0.9)+(Math.abs(Math.sqrt(a.x**2+a.y**2+a.z**2)-9.8)*0.1);
-            if(r) this.gyro=(this.gyro*0.9)+((Math.abs(r.alpha)+Math.abs(r.beta)+Math.abs(r.gamma))*0.1);
-        });
+// --- 2. THE BRAIN (Neural Network) ---
+class NeuralEngine {
+    constructor() {
+        this.inputSize = 24; 
+        this.model = this.buildModel();
+        this.trainingQueue = [];
+        this.isTraining = false;
+        // Dynamische Toleranz
+        this.baseLoss = 0.15; 
+        this.lossHistory = [];
     }
-    getStats() { return {acc:this.acc, gyro:this.gyro}; }
-}
 
-class AnomalyDetector {
-    constructor(cb) {
-        this.inputSize=24; this.windowSize=20; this.model=this.buildModel();
-        this.queue=[]; this.isTraining=false; this.threshold=0.20; this.lossHist=[];
-        this.chartCb=cb;
-    }
     buildModel() {
-        const m=tf.sequential();
-        m.add(tf.layers.dense({inputShape:[this.inputSize], units:16, activation:'relu'}));
-        m.add(tf.layers.dense({units:8, activation:'relu'}));
-        m.add(tf.layers.dense({units:16, activation:'relu'}));
-        m.add(tf.layers.dense({units:this.inputSize, activation:'sigmoid'}));
-        m.compile({optimizer:tf.train.adam(0.01), loss:'meanSquaredError'});
+        const m = tf.sequential();
+        // Encoder
+        m.add(tf.layers.dense({inputShape: [this.inputSize], units: 16, activation: 'relu'}));
+        // Bottleneck (Komprimierung des Wissens)
+        m.add(tf.layers.dense({units: 8, activation: 'relu'}));
+        // Decoder
+        m.add(tf.layers.dense({units: 16, activation: 'relu'}));
+        // Output (Rekonstruktion)
+        m.add(tf.layers.dense({units: this.inputSize, activation: 'sigmoid'}));
+        
+        m.compile({optimizer: tf.train.adam(0.005), loss: 'meanSquaredError'});
         return m;
     }
-    prep(r,s,rt,a) {
-        const nr=r.map(v=>(v+100)/70);
-        return [...nr, Math.min(s.acc/2,1), Math.min(s.gyro/100,1), Math.min(rt/10,1), Math.min(a/100,1)];
-    }
-    async detect(rssi, sens, rate, audio) {
-        if(rssi.length<this.windowSize) return {loss:0, limit:0, vec:null};
-        const vec=this.prep(rssi, sens, rate, audio);
-        const t=tf.tensor2d([vec]);
-        const out=this.model.predict(t);
-        const loss=(await tf.losses.meanSquaredError(t, out).data())[0];
-        t.dispose(); out.dispose();
 
-        const noise=audio*0.002, motion=(sens.acc*0.2)+(sens.gyro*0.004);
-        this.lossHist.push(loss); if(this.lossHist.length>50) this.lossHist.shift();
-        const avg=this.lossHist.reduce((a,b)=>a+b,0)/this.lossHist.length;
-        this.threshold=avg+0.08;
-        const limit=this.threshold+motion+noise;
+    async analyze(inputVector, contextFactors) {
+        const tensor = tf.tensor2d([inputVector]);
+        const output = this.model.predict(tensor);
+        const lossTensor = tf.losses.meanSquaredError(tensor, output);
+        const loss = (await lossTensor.data())[0];
+        
+        tensor.dispose(); output.dispose(); lossTensor.dispose();
 
-        if(loss<limit*1.5) this.queue.push(vec);
-        if(this.queue.length>40 && !this.isTraining) this.train();
-        return {loss, limit, vec};
+        // Kontext-basierte Toleranz:
+        // Wenn viel Bewegung/Lärm ist, darf der Loss höher sein.
+        const dynamicLimit = this.baseLoss + (contextFactors.acc * 0.2) + (contextFactors.gyro * 0.1);
+
+        // Auto-Training: Wenn alles sicher scheint, lerne dieses Muster
+        if (loss < dynamicLimit * 1.2) {
+            this.trainingQueue.push(inputVector);
+        }
+        if (this.trainingQueue.length > 50 && !this.isTraining) this.train();
+
+        // Adaptierung der Basis-Toleranz (langsam)
+        this.lossHistory.push(loss);
+        if(this.lossHistory.length > 100) this.lossHistory.shift();
+        this.baseLoss = (this.lossHistory.reduce((a,b)=>a+b,0) / this.lossHistory.length) + 0.05;
+
+        return { loss, limit: dynamicLimit };
     }
+
     async train() {
-        this.isTraining=true; const d=tf.tensor2d(this.queue);
-        const h=await this.model.fit(d,d,{epochs:2, shuffle:true});
-        if(this.chartCb) this.chartCb(h.history.loss[0]);
-        d.dispose(); this.queue=[]; this.isTraining=false;
+        this.isTraining = true;
+        const d = tf.tensor2d(this.trainingQueue);
+        await this.model.fit(d, d, {epochs: 1, shuffle: true}); // Kurzes, stetiges Lernen
+        d.dispose();
+        this.trainingQueue = []; // Queue leeren
+        this.isTraining = false;
     }
-    async forceLearn(vecs) {
-        if(!vecs.length) return;
-        const d=tf.tensor2d(vecs);
-        await this.model.fit(d,d,{epochs:15, shuffle:true});
+
+    async forceLearn(vectors) {
+        if(!vectors.length) return;
+        const d = tf.tensor2d(vectors);
+        await this.model.fit(d, d, {epochs: 10, shuffle: true}); // Intensives Lernen
         d.dispose();
     }
 }
 
-class DeviceBrain {
-    constructor(mac, ai) {
-        this.mac=mac; this.ai=ai; this.buf=[]; this.last=Date.now();
-        this.avg=-100; this.loss=0; this.lim=0; this.vec=null; this.pkts=0; this.rate=0; this.chk=Date.now();
-        this.x=Math.random()*100;
-        this.isIgnored = false; // Neuer Status: Ignoriert?
+// --- 3. OBJECT MANAGER (Verwaltet einzelne Geräte) ---
+class TrackedObject {
+    constructor(mac, neuralEngine) {
+        this.mac = mac;
+        this.engine = neuralEngine;
+        this.rssiHistory = []; // Buffer
+        this.lastSeen = Date.now();
+        
+        // Status
+        this.isIgnored = false; // Fahrer-Filter
+        this.ignoreCounter = 0; // Zähler für Auto-Ignore
+        
+        // Output Werte
+        this.currentLoss = 0;
+        this.currentLimit = 0;
+        this.avgRssi = -100;
+        this.lastInputVector = null;
     }
-    async add(rssi, sens, audio) {
-        this.last=Date.now(); this.pkts++;
-        if(this.last-this.chk>1000) { this.rate=this.pkts; this.pkts=0; this.chk=this.last; }
-        this.buf.push(rssi); if(this.buf.length>20) this.buf.shift();
-        this.avg=this.buf.reduce((a,b)=>a+b,0)/this.buf.length;
-        if(this.buf.length===20) {
-            const r=await this.ai.detect(this.buf, sens, this.rate, audio);
-            this.loss=r.loss; this.lim=r.limit; this.vec=r.vec;
+
+    async update(rssi, sensors, packetRate) {
+        const now = Date.now();
+        const timeDelta = Math.min((now - this.lastSeen) / 1000.0, 1.0); // 0.0 - 1.0 (Sekunden)
+        this.lastSeen = now;
+
+        // 1. GATEKEEPER (Fahrer Filter)
+        // Wenn ein Gerät 20x in Folge extrem nah ist (-45dB), ist es der Fahrer/Tablet.
+        if (rssi > -45) {
+            this.ignoreCounter++;
+            if (this.ignoreCounter > 20) this.isIgnored = true;
+        } else {
+            // Langsamer Abbau, falls man mal kurz nah war
+            if (this.ignoreCounter > 0) this.ignoreCounter--;
         }
+
+        if (this.isIgnored) return null; // Abbruch
+
+        // 2. BUFFER MANAGEMENT
+        this.rssiHistory.push(rssi);
+        if (this.rssiHistory.length > 20) this.rssiHistory.shift();
+        
+        // Durchschnitt berechnen
+        this.avgRssi = this.rssiHistory.reduce((a,b)=>a+b,0) / this.rssiHistory.length;
+
+        // 3. KI ANALYSE (Nur wenn genug Daten da sind)
+        if (this.rssiHistory.length === 20) {
+            // Vektor bauen: 20x RSSI + Zeit + Acc + Gyro + Rate
+            const inputVector = [
+                ...this.rssiHistory.map(v => (v + 100) / 70), // 0-19: RSSI normiert
+                timeDelta,      // 20: Wie alt?
+                sensors.acc,    // 21: Vibration
+                sensors.gyro,   // 22: Drehung
+                Math.min(packetRate / 10, 1.0) // 23: Aktivität
+                // Audio ist global, könnte man hier auch adden, aber Sensoren reichen für den Autoencoder meist
+            ];
+
+            this.lastInputVector = inputVector;
+            const result = await this.engine.analyze(inputVector, sensors);
+            this.currentLoss = result.loss;
+            this.currentLimit = result.limit;
+            
+            return result;
+        }
+        return null;
     }
 }
 
+// --- 4. MAIN CONTROLLER (Die App) ---
 class StaplerApp {
     constructor() {
-        this.devs={}; this.motion=new MotionSensor(); this.audio=new AudioSensor();
-        this.ai=new AnomalyDetector(l=>this.updLoss(l));
-        this.conn=false; this.lastPkt=0; this.startTime=0;
-        this.badDevs=[]; // Liste der aktuellen Alarm-Geräte
+        this.sensors = new SensorManager();
+        this.brain = new NeuralEngine();
+        this.objects = {}; // Map von MAC -> TrackedObject
         
-        // Charts Init
-        this.lossData=Array(50).fill(0);
-        const o={responsive:true, maintainAspectRatio:false, animation:false, scales:{x:{display:false}}, plugins:{legend:{display:false}}};
-        this.radar=new Chart(document.getElementById('radarChart').getContext('2d'),{type:'bubble',data:{datasets:[{data:[],backgroundColor:c=>this.col(c.raw)}]},options:{...o,scales:{y:{min:-100,max:-30,grid:{color:'#222'}}}}});
-        this.lossC=new Chart(document.getElementById('lossChart').getContext('2d'),{type:'line',data:{labels:Array(50).fill(''),datasets:[{data:this.lossData,borderColor:'#00d2ff',borderWidth:1,fill:true,backgroundColor:'rgba(0,210,255,0.1)',pointRadius:0}]},options:{...o,scales:{y:{min:0,max:0.5,grid:{color:'#222'}}}}});
+        this.isConnected = false;
+        this.lastPacket = 0;
+        this.falseAlarms = []; // Speicher für Feedback
+
+        // Loops starten
+        setInterval(() => this.uiLoop(), 200);     // UI Update (5fps)
+        setInterval(() => this.watchdog(), 1000);  // Verbindung prüfen
         
-        setInterval(()=>this.loop(), 200);
-        setInterval(()=>this.watchdog(), 1000);
+        // Charts initialisieren
+        this.initCharts();
     }
-    updLoss(v) { this.lossData.push(v); this.lossData.shift(); this.lossC.update(); }
-    async startSystem() { await this.audio.start(); this.connect(); }
+
+    // --- BLUETOOTH HANDLING ---
+    async startSystem() { await this.sensors.initAudio(); this.connect(); }
     
     async connect() {
         try {
             document.getElementById('offline-overlay').classList.add('hidden');
-            if(typeof DeviceMotionEvent?.requestPermission==='function') await DeviceMotionEvent.requestPermission();
-            const d=await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:[SERVICE_UUID]});
-            d.addEventListener('gattserverdisconnected',()=>this.discon());
-            const s=await d.gatt.connect();
-            const svc=await s.getPrimaryService(SERVICE_UUID);
-            const c=await svc.getCharacteristic(CHAR_UUID);
-            await c.startNotifications();
-            c.addEventListener('characteristicvaluechanged',e=>this.data(e));
-            this.conn=true; this.lastPkt=Date.now(); this.startTime=Date.now();
-            document.getElementById('connection-dot').className="dot-green";
-            document.getElementById('header-btn').innerText="AKTIV";
-            log("System online. Kalibriere Fahrer...", "success");
-        } catch(e) { log("Fehler: "+e.message,"error"); this.discon(); }
+            if(typeof DeviceMotionEvent?.requestPermission === 'function') await DeviceMotionEvent.requestPermission();
+            
+            const device = await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:[SERVICE_UUID]});
+            device.addEventListener('gattserverdisconnected', () => this.disconnect());
+            
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService(SERVICE_UUID);
+            const char = await service.getCharacteristic(CHAR_UUID);
+            
+            await char.startNotifications();
+            char.addEventListener('characteristicvaluechanged', e => this.handleData(e));
+            
+            this.isConnected = true;
+            this.lastPacket = Date.now();
+            this.uiSetState("ONLINE", "green");
+            log("System Verbunden. Kalibrierung läuft...", "success");
+            
+        } catch(e) { log("Conn Error: " + e.message, "error"); this.disconnect(); }
     }
-    reconnect() { this.connect(); }
-    discon() { this.conn=false; document.getElementById('offline-overlay').classList.remove('hidden'); document.getElementById('connection-dot').className="dot-red"; }
-    watchdog() { if(this.conn && Date.now()-this.lastPkt>3500) this.discon(); }
-    
-    data(e) {
-        this.lastPkt=Date.now();
+
+    disconnect() {
+        this.isConnected = false;
+        this.uiSetState("OFFLINE", "red");
+        document.getElementById('offline-overlay').classList.remove('hidden');
+    }
+
+    watchdog() {
+        if (this.isConnected && Date.now() - this.lastPacket > 3500) {
+            log("Watchdog: Verbindung verloren!", "error");
+            this.disconnect();
+        }
+    }
+
+    handleData(event) {
+        this.lastPacket = Date.now();
         try {
-            const v=new TextDecoder().decode(e.target.value).split("|");
-            const mac=v[0], rssi=parseInt(v[1]); if(isNaN(rssi)) return;
-            const sens=this.motion.getStats(), aud=this.audio.getLevel();
-            if(!this.devs[mac]) this.devs[mac]=new DeviceBrain(mac, this.ai);
-            const dev = this.devs[mac];
+            const text = new TextDecoder().decode(event.target.value);
+            const [mac, rssiStr] = text.split("|");
+            const rssi = parseInt(rssiStr);
+            if (isNaN(rssi)) return;
+
+            // Objekt holen oder erstellen
+            if (!this.objects[mac]) this.objects[mac] = new TrackedObject(mac, this.brain);
             
-            // --- FAHRER FILTER LOGIK ---
-            // Wenn das Gerät in den ersten 10 Sekunden extrem stark ist, ist es der Fahrer.
-            // Wir ignorieren es für immer.
-            if (!dev.isIgnored && Date.now() - this.startTime < 10000) {
-                if (rssi > -50) {
-                    dev.isIgnored = true;
-                    log(`Fahrer erkannt [${mac.slice(-5)}]. Ignoriere.`, "success");
-                }
+            // Daten verarbeiten
+            // (Paketrate wird hier vereinfacht simuliert, besser wäre pro-Objekt Zähler)
+            const sensors = this.sensors.getNormalized();
+            this.objects[mac].update(rssi, sensors, 1); // Rate vorerst 1, da ESP pushed
+
+        } catch(e) { console.error(e); }
+    }
+
+    // --- LOGIC & UI ---
+    uiLoop() {
+        if (!this.isConnected) return;
+
+        const now = Date.now();
+        let maxRisk = 0;
+        let points = [];
+        let currentAlarms = [];
+        let bestObj = null, maxRssi = -999;
+
+        // Durch alle Objekte iterieren
+        for (const mac in this.objects) {
+            const obj = this.objects[mac];
+            
+            // Cleanup: Alte Objekte löschen (>5s)
+            if (now - obj.lastSeen > 5000) continue;
+
+            // Ignorierte Objekte (Fahrer) überspringen
+            if (obj.isIgnored) continue;
+
+            // Für Telemetrie das stärkste Signal finden
+            if (obj.avgRssi > maxRssi) { maxRssi = obj.avgRssi; bestObj = obj; }
+
+            // --- ENTSCHEIDUNGS-LOGIK (The Judge) ---
+            let risk = 0;
+            
+            // Regel 1: KI Anomalie
+            if (obj.currentLoss > obj.currentLimit) {
+                // Nur relevant, wenn in der Nähe
+                if (obj.avgRssi > -75) risk = 2; // Gefahr
+                else if (obj.avgRssi > -85) risk = 1; // Warnung
             }
             
-            dev.add(rssi, sens, aud);
-        } catch(err){}
-    }
-    
-    loop() {
-        const hb=document.getElementById('system-heartbeat');
-        hb.style.color=(Date.now()%1000<500)?'#0f0':'#555';
-        if(!this.conn) { document.getElementById('tel-status').innerText="DISCONNECTED"; return; }
+            // Regel 2: Notbremse (Physik schlägt KI)
+            if (obj.avgRssi > -50) risk = 2;
 
-        const sens=this.motion.getStats(), aud=this.audio.getLevel();
-        let maxR=0, points=[], currentBadDevs=[];
-        let bestDev=null, bestRSSI=-999;
+            if (risk === 2) currentAlarms.push(obj.lastInputVector);
+            if (risk > maxRisk) maxRisk = risk;
 
-        for(let k in this.devs) {
-            const d=this.devs[k];
-            if(Date.now()-d.last>5000) continue;
-            
-            // Wenn ignoriert (Fahrer), überspringen wir die Gefahr-Berechnung
-            if(d.isIgnored) {
-                // Zeige Fahrer als kleinen grauen Punkt (zur Kontrolle)
-                points.push({x:d.x, y:d.avg, r:3, raw:0}); 
-                continue;
-            }
-
-            if(d.avg>bestRSSI) { bestRSSI=d.avg; bestDev=d; }
-            
-            let r=0;
-            // 1. KI Anomalie
-            if(d.loss > d.lim) r=(d.avg>-75)?2:1;
-            // 2. Notbremse (nur wenn nicht ignoriert)
-            if(d.avg > -45) r=2;
-            
-            if(r===2) currentBadDevs.push(d); // Merken für Feedback Button
-            if(r>maxR) maxR=r;
-            
-            points.push({x:d.x, y:d.avg, r:(r===2?25:r===1?15:6), raw:r});
+            // Für Chart speichern
+            points.push({x: obj.x, y: obj.avgRssi, r: (risk===2?25:risk===1?15:6), raw: risk});
         }
-        
-        this.badDevs = currentBadDevs; // Globale Liste für Button
-        this.radar.data.datasets[0].data=points; this.radar.update();
-        
-        // UI und Telemetrie
-        document.getElementById('val-objects').innerText=points.length;
-        document.getElementById('val-audio').innerText=aud.toFixed(0)+"%";
-        document.getElementById('val-motion').innerText=sens.acc.toFixed(1)+"G";
-        
-        if(bestDev) {
-            document.getElementById('tel-mac').innerText=".."+bestDev.mac.slice(-5);
-            document.getElementById('tel-rssi').innerText=bestDev.avg.toFixed(1);
-            document.getElementById('tel-buf').innerText=bestDev.buf.length;
-            document.getElementById('tel-loss').innerText=bestDev.loss.toFixed(4);
-            document.getElementById('tel-limit').innerText=bestDev.lim.toFixed(4);
-            document.getElementById('tel-status').innerText=bestDev.loss>bestDev.lim?"⚠️ ANOMALIE":"OK";
-        }
-        
-        // Debug Sensoren
-        document.getElementById('tel-acc').innerText=sens.acc.toFixed(2);
-        document.getElementById('tel-gyro').innerText=sens.gyro.toFixed(0);
 
-        this.setStatus(maxR);
+        // Alarme für Feedback speichern
+        if (currentAlarms.length > 0) this.falseAlarms = currentAlarms;
+
+        // UI Updates
+        this.updateCharts(points, bestObj);
+        this.updateTelemetry(bestObj);
+        this.updateStatus(maxRisk);
     }
-    
-    setStatus(r) {
-        const s=document.getElementById('status-display'), t=document.getElementById('main-status-text');
-        s.className="";
-        if(r===2) { s.classList.add('status-danger'); t.innerText="GEFAHR"; if(navigator.vibrate) navigator.vibrate(200); }
-        else if(r===1) { s.classList.add('status-warn'); t.innerText="WARNUNG"; }
-        else { s.classList.add('status-safe'); t.innerText="FREI"; }
+
+    updateStatus(risk) {
+        const d = document.getElementById('status-display');
+        const t = document.getElementById('main-status-text');
+        d.className = "";
+        
+        if (risk === 2) {
+            d.classList.add('status-danger'); t.innerText = "STOP!!";
+            if (navigator.vibrate) navigator.vibrate(200);
+        } else if (risk === 1) {
+            d.classList.add('status-warn'); t.innerText = "ACHTUNG";
+        } else {
+            d.classList.add('status-safe'); t.innerText = "FREI";
+        }
     }
-    
+
     reportFalseAlarm() {
-        if(!this.badDevs.length) return alert("Kein aktiver Alarm.");
-        
-        // 1. KI Trainieren
-        const vecs = this.badDevs.map(d => d.vec).filter(v => v);
-        this.ai.forceLearn(vecs);
-        
-        // 2. DAS WICHTIGE: Gerät temporär ignorieren (Whitelisting)
-        this.badDevs.forEach(d => {
-            d.isIgnored = true;
-            log(`MAC [${d.mac.slice(-5)}] wird nun ignoriert.`, "learning");
+        if (this.falseAlarms.length === 0) return alert("Keine Daten zum Lernen.");
+        this.brain.forceLearn(this.falseAlarms);
+        this.falseAlarms = [];
+        alert("KI wurde korrigiert und lernt diese Situation als 'SICHER'.");
+    }
+
+    // --- VISUALISIERUNG ---
+    initCharts() {
+        // (Code für Chart.js Setup - analog zu vorher, hier gekürzt für Übersicht)
+        this.radar = new Chart(document.getElementById('radarChart').getContext('2d'), {
+            type:'bubble', data:{datasets:[{data:[], backgroundColor:c=>this.col(c.raw)}]},
+            options:{responsive:true, maintainAspectRatio:false, animation:false, scales:{y:{min:-100,max:-30,grid:{color:'#222'}}, x:{display:false}}, plugins:{legend:{display:false}}}
         });
-        
-        const btn=document.getElementById('btn-false-alarm');
-        btn.innerText="✅ IGNORIERE GERÄT!";
-        setTimeout(()=>{ btn.innerText="✋ DAS WAR EIN FEHLALARM!"; }, 2000);
+        this.lossChart = new Chart(document.getElementById('lossChart').getContext('2d'), {
+            type:'line', data:{labels:Array(50).fill(''), datasets:[{data:Array(50).fill(0), borderColor:'#00d2ff', borderWidth:1, fill:true, backgroundColor:'rgba(0,210,255,0.1)', pointRadius:0}]},
+            options:{responsive:true, maintainAspectRatio:false, animation:false, scales:{y:{min:0,max:0.5,grid:{color:'#222'}}, x:{display:false}}, plugins:{legend:{display:false}}}
+        });
     }
     
-    col(r) { return r===2?'rgba(255,0,85,0.9)':r===1?'rgba(255,170,0,0.8)':(r===0?'#555':'rgba(0,255,0,0.6)'); }
+    updateCharts(points, bestObj) {
+        this.radar.data.datasets[0].data = points;
+        this.radar.update();
+        if(bestObj) {
+            this.lossChart.data.datasets[0].data.push(bestObj.currentLoss);
+            this.lossChart.data.datasets[0].data.shift();
+            this.lossChart.update();
+        }
+    }
+
+    updateTelemetry(obj) {
+        const s = this.sensors.getNormalized();
+        document.getElementById('tel-acc').innerText = (s.acc*2).toFixed(2); // De-Norm
+        document.getElementById('tel-gyro').innerText = (s.gyro*100).toFixed(0);
+        
+        if (obj) {
+            document.getElementById('tel-mac').innerText = ".." + obj.mac.slice(-5);
+            document.getElementById('tel-rssi').innerText = obj.avgRssi.toFixed(1);
+            document.getElementById('tel-buf').innerText = obj.rssiHistory.length;
+            document.getElementById('tel-loss').innerText = obj.currentLoss.toFixed(4);
+            document.getElementById('tel-limit').innerText = obj.currentLimit.toFixed(4);
+            document.getElementById('tel-status').innerText = obj.currentLoss > obj.currentLimit ? "ANOMALIE" : "OK";
+        }
+    }
+
+    uiSetState(text, color) { /* Helfer für Button/LED Status */ }
+    col(r) { return r===2?'rgba(255,0,85,0.9)':r===1?'rgba(255,170,0,0.8)':'rgba(0,255,0,0.6)'; }
 }
+
+const app = new StaplerApp();
  
