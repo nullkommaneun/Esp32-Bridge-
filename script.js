@@ -1,5 +1,4 @@
 // --- KONFIGURATION ---
-// Muss exakt mit deinem ESP32 übereinstimmen!
 const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
 const CHAR_UUID =    "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
@@ -32,7 +31,12 @@ class DeviceBrain {
             sumXY += i * this.rssiBuffer[i];
             sumXX += i * i;
         }
-        const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+        
+        // Nenner darf nicht 0 sein (Division by Zero verhindern)
+        const denominator = (n * sumXX - sumX * sumX);
+        if (denominator === 0) return;
+
+        const slope = (n * sumXY - sumX * sumY) / denominator;
         const avg = sumY / n;
         
         this.velocity = slope;
@@ -49,11 +53,22 @@ class DeviceBrain {
 
 class StaplerApp {
     constructor() {
+        // Init Devices Map
         this.devices = {};
-        this.chart = this.initChart();
         this.isScanning = false;
+        
+        // Chart initialisieren (mit Error Handling)
+        try {
+            this.chart = this.initChart();
+        } catch (e) {
+            console.error("Chart Fehler:", e);
+            log("Chart konnte nicht laden: " + e.message, "error");
+        }
+
+        // Loop starten
         setInterval(() => this.updateUI(), 200);
-        log("App initialisiert. Bereit zum Verbinden.");
+        
+        log("App initialisiert. Bereit zum Verbinden.", "success");
     }
 
     initChart() {
@@ -61,7 +76,9 @@ class StaplerApp {
         return new Chart(ctx, {
             type: 'bubble',
             data: { datasets: [{ 
-                label: 'Radar', data: [], 
+                label: 'Radar', 
+                data: [], 
+                // HIER WAR DER FEHLER: Wir prüfen jetzt, ob 'raw' existiert
                 backgroundColor: ctx => this.getColor(ctx.raw),
                 borderColor: 'transparent' 
             }] },
@@ -78,13 +95,10 @@ class StaplerApp {
         });
     }
 
-    // --- BLUETOOTH CORE (SIMPLIFIED) ---
     async connect() {
         try {
             log("Starte Bluetooth Suche (Alle Geräte)...");
             
-            // 1. Suche OHNE Filter (zeigt alles an)
-            // WICHTIG: optionalServices muss gesetzt sein, sonst können wir später nicht lesen!
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: [SERVICE_UUID] 
@@ -94,13 +108,10 @@ class StaplerApp {
             log("Verbinde mit GATT Server...");
 
             const server = await device.gatt.connect();
-            log("GATT verbunden. Suche Service...");
-
             const service = await server.getPrimaryService(SERVICE_UUID);
-            log("Service gefunden! Suche Characteristic...");
-
             const characteristic = await service.getCharacteristic(CHAR_UUID);
-            log("Characteristic gefunden! Starte Notifications...");
+
+            log("Verbindung steht! Starte Datenstrom...", "success");
 
             await characteristic.startNotifications();
             characteristic.addEventListener('characteristicvaluechanged', (e) => this.handleData(e));
@@ -108,36 +119,25 @@ class StaplerApp {
             this.isScanning = true;
             document.getElementById('btn-connect').innerText = "VERBUNDEN";
             document.getElementById('btn-connect').style.borderColor = "#0f0";
-            log("ERFOLG: Scanner läuft!", "success");
+            document.getElementById('btn-connect').style.color = "#0f0";
 
         } catch (e) {
-            // Ausführliche Fehlermeldung für den Debugger
-            log(`FEHLER BEIM VERBINDEN: ${e.message}`, "error");
+            log(`FEHLER: ${e.message}`, "error");
             console.error(e);
-            
-            if(e.name === 'NotFoundError') {
-                log("Tipp: Hast du das richtige Gerät in der Liste ausgewählt?");
-                log("Tipp: Läuft der ESP32? Leuchtet er?");
-            } else if (e.name === 'SecurityError') {
-                log("Sicherheits-Fehler! Nutze Chrome und HTTPS (Github Pages).");
-            }
         }
     }
 
     handleData(event) {
         try {
             const val = new TextDecoder().decode(event.target.value);
-            // Wir erwarten: "MAC|RSSI"
             const parts = val.split("|");
             
-            if(parts.length !== 2) {
-                // Falls Datenmüll kommt, nicht crashen, nur loggen
-                // log("Ignoriere fehlerhaftes Paket: " + val); 
-                return;
-            }
+            if(parts.length !== 2) return;
 
             const mac = parts[0];
             const rssi = parseInt(parts[1]);
+
+            if(isNaN(rssi)) return; // Schutz vor kaputten Daten
 
             if (!this.devices[mac]) {
                 this.devices[mac] = new DeviceBrain(mac);
@@ -146,12 +146,12 @@ class StaplerApp {
             
             this.devices[mac].addMeasurement(rssi);
         } catch(err) {
-            log("Parsing Fehler: " + err.message, "error");
+            // Parsing Fehler ignorieren
         }
     }
 
     updateUI() {
-        if(!this.isScanning) return;
+        if(!this.isScanning || !this.chart) return;
 
         const chartData = [];
         let maxRisk = 0; 
@@ -205,7 +205,7 @@ class StaplerApp {
             reason.innerText = "Kollisionskurs erkannt!";
             if(navigator.vibrate) navigator.vibrate(200);
         } else if (riskLevel === 1) {
-            display.classList.add('status-safe'); // Warnung ist auch "safe" genug für den Anfang
+            display.classList.add('status-safe'); 
             display.style.borderColor = "orange";
             display.style.color = "orange";
             text.innerText = "ACHTUNG";
@@ -217,7 +217,11 @@ class StaplerApp {
         }
     }
 
+    // --- HIER WAR DER FIX NÖTIG ---
     getColor(item) {
+        // Sicherheits-Check: Wenn 'item' null/undefined ist, gib Transparent zurück
+        if (!item || item.riskLevel === undefined) return 'rgba(0,0,0,0)'; 
+
         if (item.riskLevel === 2) return 'rgba(255, 0, 85, 0.9)'; 
         if (item.riskLevel === 1) return 'rgba(255, 170, 0, 0.8)'; 
         return 'rgba(0, 255, 0, 0.6)'; 
