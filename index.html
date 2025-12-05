@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stapler AI Guard ULTIMATE</title>
+    <title>AI Guard ULTIMATE + DEBUG</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
@@ -12,45 +12,44 @@
 
     <div id="offline-overlay" class="hidden">
         <div class="offline-box">
-            <h1>⚠️ SYSTEM OFFLINE</h1>
-            <button onclick="app.reconnect()">NEUSTART</button>
+            <h1>⚠️ OFFLINE</h1>
+            <button onclick="app.reconnect()">RECONNECT</button>
         </div>
     </div>
 
     <div class="container">
         <header>
-            <div class="brand"><span class="icon">🧬</span> AI FUSION CORE</div>
+            <div class="brand"><span class="icon">🔬</span> AI DIAGNOSTICS</div>
             <button id="header-btn" onclick="app.startSystem()">STARTEN</button>
             <div id="connection-dot" class="dot-red"></div> 
         </header>
 
         <div id="status-display" class="status-safe">
-            <div id="main-status-text">BEREIT</div>
-            <div id="ai-reason">Warte auf Start...</div>
+            <div id="main-status-text">READY</div>
+            <div id="ai-reason">Warte auf Input...</div>
         </div>
 
-        <button id="btn-false-alarm" onclick="app.reportFalseAlarm()">✋ DAS WAR EIN FEHLALARM!</button>
+        <button id="btn-false-alarm" onclick="app.reportFalseAlarm()">✋ DAS WAR FALSCH (LERNEN!)</button>
 
         <div class="grid-stats">
             <div class="card">
-                <div class="label">Objekte (Scan)</div>
+                <div class="label">Objekte</div>
                 <div class="value" id="val-objects">0</div>
             </div>
             <div class="card">
-                <div class="label">Lärm (Audio)</div>
-                <div class="value" id="val-audio">0 %</div>
+                <div class="label">Audio</div>
+                <div class="value" id="val-audio">0%</div>
             </div>
             <div class="card">
-                <div class="label">Vibration</div>
-                <div class="value" id="val-motion">0.0 G</div>
+                <div class="label">Motion</div>
+                <div class="value" id="val-motion">0.0G</div>
             </div>
         </div>
 
-        <div class="chart-box" style="height: 25vh;">
+        <div class="chart-box" style="height: 20vh;">
             <canvas id="radarChart"></canvas>
         </div>
-
-        <div class="chart-header">🧠 NEURAL NETWORK ACTIVITY (LOSS)</div>
+        <div class="chart-header">🧠 NEURAL LOSS (FEHLERKURVE)</div>
         <div class="chart-box" style="height: 15vh; border-top:none;">
             <canvas id="lossChart"></canvas>
         </div>
@@ -58,28 +57,53 @@
 
     <div id="debug-panel">
         <div class="debug-header">
-            <span>FULL SPECTRUM INSPECTOR</span>
-            <button onclick="copyLog()" class="mini-btn">COPY LOG</button>
+            <span>LIVE DIAGNOSE</span>
+            <div>
+                <button onclick="toggleDebug()" class="mini-btn">EXPAND</button>
+                <button onclick="copyLog()" class="mini-btn">COPY</button>
+            </div>
         </div>
+        
+        <div id="debug-stats">
+            <div class="d-item"><span>ACC:</span> <span id="dbg-acc" style="color:#ffab00">0.00</span></div>
+            <div class="d-item"><span>GYRO:</span> <span id="dbg-gyro" style="color:#ffab00">0</span></div>
+            <div class="d-item"><span>LOSS:</span> <span id="dbg-loss" style="color:#00d2ff">0.000</span></div>
+            <div class="d-item"><span>LIMIT:</span> <span id="dbg-limit" style="color:#00d2ff">0.000</span></div>
+            <div class="d-item"><span>RATE:</span> <span id="dbg-rate">0/s</span></div>
+            <div class="d-item"><span>STATE:</span> <span id="dbg-state">IDLE</span></div>
+        </div>
+
         <div id="console-output">System initialisiert.</div>
     </div>
 
     <script src="script.js"></script>
     <script>
+        // Debugger Tools
+        function toggleDebug() {
+            const p = document.getElementById('debug-panel');
+            if(p.style.height === '50vh') p.style.height = '180px';
+            else p.style.height = '50vh';
+        }
+        
         window.onerror = function(msg, url, line) { log(`ERR: ${msg} (${line})`, 'error'); };
+        
         function log(msg, type = 'info') {
             const el = document.getElementById('console-output');
-            const time = new Date().toLocaleTimeString();
-            let color = '#aaa';
+            const time = new Date().toLocaleTimeString().split(' ')[0]; // Nur Zeit ohne AM/PM
+            let color = '#888';
             if(type === 'error') color = '#ff0055';
-            if(type === 'success') color = '#0f0';
+            if(type === 'success') color = '#00c853';
             if(type === 'ai') color = '#00d2ff';
             if(type === 'learning') color = '#ffaa00';
             
-            el.innerHTML += `<div style="color:${color}; border-bottom:1px solid #222;">[${time}] ${msg}</div>`;
+            // Auto-Cleanup: Behalte nur die letzten 50 Zeilen (Performance!)
+            if(el.childElementCount > 50) el.removeChild(el.firstChild);
+
+            el.innerHTML += `<div style="color:${color}; border-bottom:1px solid #1a1a1a; padding:2px;">[${time}] ${msg}</div>`;
             el.scrollTop = el.scrollHeight;
         }
-        function copyLog() { navigator.clipboard.writeText(document.getElementById('console-output').innerText); alert("Log kopiert!"); }
+        function copyLog() { navigator.clipboard.writeText(document.getElementById('console-output').innerText); alert("Kopiert!"); }
+        
         const app = new StaplerApp();
     </script>
 </body>
