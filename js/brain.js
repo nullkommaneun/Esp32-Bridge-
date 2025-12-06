@@ -6,7 +6,7 @@ export class NeuralBrain {
         this.futureSteps = 5;  
         this.inputBuffer = []; 
         
-        // Speicher für Min/Max Werte zur Normalisierung
+        // Speicher für Min/Max Werte
         this.normalization = {
             min: new Array(16).fill(0),
             max: new Array(16).fill(1)
@@ -15,37 +15,27 @@ export class NeuralBrain {
 
     // --- TRAINING ---
     async train(recordedData) {
-        if (typeof tf === 'undefined') {
-            console.error("TensorFlow nicht geladen!");
-            return false;
-        }
-
-        if (recordedData.length < this.historySize + this.futureSteps + 10) {
-            console.warn("Zu wenig Daten!");
-            return false;
-        }
+        if (typeof tf === 'undefined') return false;
+        if (recordedData.length < this.historySize + this.futureSteps + 10) return false;
 
         this.isTraining = true;
-        console.log("Brain: Analysiere Datenbereich (Min/Max)...");
+        console.log("Brain: Berechne Normalisierung...");
 
-        // 1. Min/Max berechnen für Normalisierung
+        // 1. Min/Max lernen
         this.calculateMinMax(recordedData);
 
-        // 2. Daten normalisieren (alles auf 0.0 bis 1.0 bringen)
+        // 2. Daten normalisieren
         const normalizedData = recordedData.map(row => this.normalizeVector(row));
 
         const inputs = [];
         const targets = [];
-
-        console.log("Brain: Erstelle Tensoren...");
 
         // Sliding Window
         for (let i = 0; i < normalizedData.length - this.historySize - this.futureSteps; i++) {
             const window = normalizedData.slice(i, i + this.historySize);
             inputs.push(window);
 
-            // Prediction Targets (Normalized!)
-            // Index 9 = Proximity (C), Index 4 = Kinetic (A)
+            // Wir trainieren auf MAX werte der Zukunft
             let maxProx = 0;
             let maxKin = 0;
             for(let j=1; j<=this.futureSteps; j++) {
@@ -59,26 +49,24 @@ export class NeuralBrain {
         const xs = tf.tensor3d(inputs); 
         const ys = tf.tensor2d(targets); 
 
-        // Modell erstellen
-        if (!this.model) {
-            this.model = tf.sequential();
-            this.model.add(tf.layers.lstm({
-                units: 32, // Mehr Neuronen für komplexe Muster
-                inputShape: [this.historySize, 16],
-                returnSequences: false
-            }));
-            // Dropout gegen Overfitting (lernt nicht auswendig)
-            this.model.add(tf.layers.dropout({ rate: 0.2 }));
-            this.model.add(tf.layers.dense({ units: 2, activation: 'sigmoid' })); // Sigmoid zwingt Output auf 0-1
-            this.model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
-        }
-
-        console.log("Brain: Starte Training (20 Epochen)...");
+        // Modell Reset & Aufbau
+        if (this.model) this.model.dispose(); // Altes Modell löschen
         
-        // Training (Mehr Epochen für bessere Konvergenz)
+        this.model = tf.sequential();
+        this.model.add(tf.layers.lstm({
+            units: 40, // Etwas mehr Power
+            inputShape: [this.historySize, 16],
+            returnSequences: false
+        }));
+        this.model.add(tf.layers.dense({ units: 16, activation: 'relu' })); // Zwischenschicht
+        this.model.add(tf.layers.dense({ units: 2, activation: 'sigmoid' })); // Output 0-1
+        
+        this.model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+
+        console.log("Brain: Starte Training...");
         await this.model.fit(xs, ys, {
-            epochs: 20, 
-            batchSize: 32,
+            epochs: 25, 
+            batchSize: 16, // Kleinerer Batch lernt genauer
             shuffle: true
         });
 
@@ -92,7 +80,6 @@ export class NeuralBrain {
     process(inputObj) {
         if (this.isTraining || !this.model) return { safe:0, warn:0, danger:0 };
 
-        // 1. Vektor holen und NORMALISIEREN
         const rawVector = this.flattenInput(inputObj);
         const normVector = this.normalizeVector(rawVector);
         
@@ -115,36 +102,40 @@ export class NeuralBrain {
             return result.dataSync(); 
         });
 
-        // Output ist 0.0 bis 1.0 (wegen Sigmoid und Normalisierung)
+        // Vorhersage ist normalisiert (0.0 bis 1.0)
         const predProxNorm = prediction[0];
         const predKinNorm = prediction[1];
 
-        // Rückrechnen in echte Werte für die Logik (Denormalisierung)
+        // Umrechnen in echte Werte
         const predProx = this.denormalizeValue(predProxNorm, 9);
         const predKin = this.denormalizeValue(predKinNorm, 4);
-
-        // Debug Ausgabe (damit du siehst was er vorhersagt)
-        // console.log(`Pred: Prox=${predProx.toFixed(1)}dBm, Kin=${predKin.toFixed(2)}`);
 
         let pSafe = 1.0;
         let pWarn = 0.0;
         let pDanger = 0.0;
 
-        // KI Logik mit echten Grenzwerten
-        // Kinetic > 2.0 ist meist ein harter Schlag
-        // Proximity > -40 ist sehr nah
-        if (predKin > 2.5 || predProx > -35) {
+        // --- DIAGNOSE LOGIK (Warum ist es rot?) ---
+        // Grenzwerte: Kinetic > 2.5G | Proximity > -35dBm
+        
+        if (predKin > 2.5) {
             pDanger = 1.0; pSafe = 0.0;
-        } else if (predProx > -55) {
+            // Nur loggen wenn neu, sonst spammt es
+            if(Math.random() < 0.05) console.warn(`ALARM: Crash Vorhersage! (${predKin.toFixed(2)} G)`);
+        } 
+        else if (predProx > -35) {
+            pDanger = 1.0; pSafe = 0.0;
+            if(Math.random() < 0.05) console.warn(`ALARM: Kollision Vorhersage! (${predProx.toFixed(1)} dBm)`);
+        }
+        else if (predProx > -55) {
             pWarn = 1.0; pSafe = 0.0;
         }
 
         return { safe: pSafe, warn: pWarn, danger: pDanger };
     }
 
-    // --- HELPER: NORMALISIERUNG ---
+    // --- HELPER ---
     calculateMinMax(data) {
-        // Initialisieren
+        // Reset mit ersten Werten
         this.normalization.min = [...data[0]];
         this.normalization.max = [...data[0]];
 
@@ -155,12 +146,13 @@ export class NeuralBrain {
             }
         }
         
-        // Puffer hinzufügen, damit neue Werte nicht sprengen
+        // Sicherheits-Puffer erweitern (verhindert das "Springen" bei leicht neuen Werten)
         for(let i=0; i<16; i++) {
-            let span = this.normalization.max[i] - this.normalization.min[i];
-            if(span === 0) span = 1; // Division durch Null verhindern
-            this.normalization.min[i] -= span * 0.1; 
-            this.normalization.max[i] += span * 0.1;
+            let range = this.normalization.max[i] - this.normalization.min[i];
+            if(range === 0) range = 0.1; 
+            // Wir erweitern den gelernten Bereich um 50%, damit die KI tolerant ist
+            this.normalization.min[i] -= range * 0.5; 
+            this.normalization.max[i] += range * 0.5;
         }
     }
 
@@ -168,12 +160,16 @@ export class NeuralBrain {
         return vector.map((val, i) => {
             let min = this.normalization.min[i];
             let max = this.normalization.max[i];
-            // Safe Division
-            if (max === min) return 0.5;
+            
+            // Berechnen
             let norm = (val - min) / (max - min);
-            // Clamping (0-1)
+            
+            // CLAMPING (Das ist der Fix!)
+            // Werte, die außerhalb des gelernten Bereichs liegen, werden abgeschnitten.
+            // Das verhindert, dass die KI "unendliche" Werte sieht und Panik bekommt.
             if (norm < 0) norm = 0;
             if (norm > 1) norm = 1;
+            
             return norm;
         });
     }
@@ -194,4 +190,3 @@ export class NeuralBrain {
         ];
     }
 }
- 
