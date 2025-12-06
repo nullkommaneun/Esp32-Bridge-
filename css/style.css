@@ -70,3 +70,22 @@ h1 { font-size: 1.5rem; margin: 0; }
 .meta-card h3 { color: #d2a8ff; } /* Lila für System */
 
 .text-esp { color: #58a6ff; } /* Kennzeichnung: Daten kommen vom ESP */
+
+/* Record Button */
+.record-btn {
+    background: #21262d; border: 1px solid #f85149; color: #f85149;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-left: 10px;
+}
+.record-btn.recording {
+    background: #f85149; color: #fff; animation: pulse 2s infinite;
+}
+@keyframes pulse { 0% {opacity: 1;} 50% {opacity: 0.5;} 100% {opacity: 1;} }
+
+/* Output Bars */
+.output-layer { margin-top: 20px; border-color: #d2a8ff; }
+.bar-container { margin-bottom: 8px; }
+.bar-bg { background: #21262d; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 4px; }
+.bar-fill { height: 100%; transition: width 0.1s linear; }
+.safe { background: #2ea043; }
+.warn { background: #d29922; }
+.danger { background: #f85149; }
