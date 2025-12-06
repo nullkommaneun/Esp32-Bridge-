@@ -27,70 +27,80 @@ let lastEspState = {
 
 // --- STARTUP ---
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. Buttons suchen (Sicherheits-Check mit Fallback)
     const btnConnect = document.getElementById('btn-connect');
-    const btnLearn = document.getElementById('btn-learn');
+    
+    // WICHTIG: Sucht nach 'btn-learn' ODER 'btn-record', um den Absturz zu verhindern
+    const btnLearn = document.getElementById('btn-learn') || document.getElementById('btn-record');
 
     // Bluetooth Manager konfigurieren
     const ble = new BLEManager(handleEspData, UI.log, UI.setStatus);
 
-    // 1. LOGIK FÜR DEN LERN-BUTTON (Training)
-    btnLearn.addEventListener('click', async () => {
-        
-        // A) Start Aufnahme
-        if (!recorder.isRecording) {
-            recorder.start(); 
-            btnLearn.textContent = "⏳ Aufnehmen...";
-            btnLearn.classList.add('recording');
-            UI.log("Sammle Trainingsdaten... Bitte normal fahren!", "info");
-        } 
-        
-        // B) Stopp & Training
-        else {
-            recorder.stop(); // Daten liegen jetzt in recorder.buffer
-            btnLearn.textContent = "⚙️ Training...";
-            btnLearn.classList.remove('recording');
+    // 2. LOGIK FÜR DEN LERN-BUTTON (Training)
+    if (btnLearn) {
+        btnLearn.addEventListener('click', async () => {
             
-            // UI Feedback geben
-            UI.log(`Starte LSTM Training mit ${recorder.buffer.length} Datensätzen...`, "info");
+            // A) Start Aufnahme
+            if (!recorder.isRecording) {
+                recorder.start(); 
+                btnLearn.textContent = "⏳ Aufnehmen...";
+                btnLearn.classList.add('recording');
+                UI.log("Sammle Trainingsdaten... Bitte normal fahren!", "info");
+            } 
             
-            // Daten aufbereiten: Wir brauchen nur die Spalten 1-16 (ohne Zeitstempel/Label)
-            // recorder.buffer Format: [Time, N1, N2 ... N16, Label]
-            const trainingData = recorder.buffer.map(row => row.slice(1, 17));
-
-            // Kurze Verzögerung, damit der Browser den Button-Text rendern kann
-            setTimeout(async () => {
-                // Das Brain trainiert sich selbst im Browser
-                const success = await brain.train(trainingData);
+            // B) Stopp & Training
+            else {
+                recorder.stop(); // Daten liegen jetzt in recorder.buffer
+                btnLearn.textContent = "⚙️ Training...";
+                btnLearn.classList.remove('recording');
                 
-                if (success) {
-                    btnLearn.textContent = "✅ AI Aktiv";
-                    btnLearn.classList.add('active-brain'); // Grün
-                    UI.log("Training abgeschlossen. Vorhersage (Prediction) aktiv.", "success");
-                } else {
-                    btnLearn.textContent = "❌ Fehler";
-                    UI.log("Training fehlgeschlagen (zu wenig Daten?)", "error");
-                }
-            }, 50);
-        }
-    });
+                // UI Feedback geben
+                UI.log(`Starte LSTM Training mit ${recorder.buffer.length} Datensätzen...`, "info");
+                
+                // Daten aufbereiten: Wir brauchen nur die Spalten 1-16 (ohne Zeitstempel/Label)
+                // recorder.buffer Format: [Time, N1, N2 ... N16, Label]
+                const trainingData = recorder.buffer.map(row => row.slice(1, 17));
 
-    // 2. LOGIK FÜR VERBINDEN
-    btnConnect.addEventListener('click', async () => {
-        // Handy Sensoren brauchen User-Interaktion zum Starten
-        try { 
-            await PhoneSensors.init(); 
-            UI.log("Handy-Sensoren bereit.", "success");
-        } catch (e) { 
-            console.warn(e); 
-            UI.log("Sensor-Fehler (siehe Konsole)", "warning");
-        }
-        
-        // BLE Verbindung starten
-        ble.connect();
-        
-        // Den Main-Loop starten
-        requestAnimationFrame(fusionLoop);
-    });
+                // Kurze Verzögerung, damit der Browser den Button-Text rendern kann
+                setTimeout(async () => {
+                    // Das Brain trainiert sich selbst im Browser
+                    const success = await brain.train(trainingData);
+                    
+                    if (success) {
+                        btnLearn.textContent = "✅ AI Aktiv";
+                        btnLearn.classList.add('active-brain'); // Grün
+                        UI.log("Training abgeschlossen. Vorhersage (Prediction) aktiv.", "success");
+                    } else {
+                        btnLearn.textContent = "❌ Fehler";
+                        UI.log("Training fehlgeschlagen (zu wenig Daten?)", "error");
+                    }
+                }, 50);
+            }
+        });
+    } else {
+        console.error("CRITICAL: Lern-Button nicht im HTML gefunden! Prüfe IDs.");
+        UI.log("GUI Fehler: Button fehlt in index.html", "error");
+    }
+
+    // 3. LOGIK FÜR VERBINDEN
+    if (btnConnect) {
+        btnConnect.addEventListener('click', async () => {
+            // Handy Sensoren brauchen User-Interaktion zum Starten
+            try { 
+                await PhoneSensors.init(); 
+                UI.log("Handy-Sensoren bereit.", "success");
+            } catch (e) { 
+                console.warn(e); 
+                UI.log("Sensor-Fehler (siehe Konsole)", "warning");
+            }
+            
+            // BLE Verbindung starten
+            ble.connect();
+            
+            // Den Main-Loop starten
+            requestAnimationFrame(fusionLoop);
+        });
+    }
 });
 
 // --- DATENVERARBEITUNG ESP32 ---
@@ -176,7 +186,7 @@ function fusionLoop() {
     UI.updateNeuralVector(neuralInput);
 
     // 3. AI Vorhersage & Aufzeichnung
-    // Nur ausführen, wenn wir valide Daten vom ESP haben
+    // Nur ausführen, wenn wir valide Daten vom ESP haben (Gruppe B ist da)
     if (neuralInput.groupB.proximity !== undefined) {
         
         // A) Vorhersage holen (Safe / Warn / Danger)
