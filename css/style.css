@@ -89,3 +89,24 @@ h1 { font-size: 1.5rem; margin: 0; }
 .safe { background: #2ea043; }
 .warn { background: #d29922; }
 .danger { background: #f85149; }
+
+/* --- TABS --- */
+.tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
+.tab-btn {
+    flex: 1; background: transparent; border: 1px solid #30363d; color: #8b949e;
+    padding: 10px; cursor: pointer; border-radius: 6px; font-weight: bold;
+}
+.tab-btn.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: fadeIn 0.3s; }
+
+/* --- FILE UPLOAD --- */
+.train-box { background: #161b22; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #30363d; }
+.file-input { background: #0d1117; color: #fff; padding: 10px; width: 100%; border-radius: 6px; }
+.train-log { margin-top: 10px; font-family: monospace; color: #58a6ff; font-size: 0.9rem; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Controls Area */
+.controls-area { display: flex; gap: 10px; margin-bottom: 20px; }
+.record-btn:disabled, .primary-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
