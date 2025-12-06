@@ -62,3 +62,11 @@ h1 { font-size: 1.5rem; margin: 0; }
 .log-entry.success { color: var(--success); }
 .log-entry.error { color: var(--danger); }
 .log-entry.debug { color: #d2a8ff; } /* Lila für Raw Data */
+
+/* Farben für die Input-Gruppen */
+.physics h3 { color: #f85149; } /* Rot für schnelle Physik */
+.spectrum h3 { color: #58a6ff; } /* Blau für Funk */
+.env h3 { color: #2ea043; }      /* Grün für Umgebung */
+.meta-card h3 { color: #d2a8ff; } /* Lila für System */
+
+.text-esp { color: #58a6ff; } /* Kennzeichnung: Daten kommen vom ESP */
