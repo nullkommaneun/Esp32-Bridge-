@@ -3,123 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stapler AI Guard ULTIMATE</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    <title>Neural Sensor Fusion Node</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-    <div id="offline-overlay" class="hidden">
-        <div class="offline-box">
-            <h1>⚠️ SYSTEM OFFLINE</h1>
-            <p>Verbindung unterbrochen.</p>
-            <button onclick="app.reconnect()">NEUSTART</button>
-        </div>
-    </div>
-
     <div class="container">
         <header>
-            <div class="brand"><span class="icon">🔬</span> AI FUSION CORE</div>
-            <button id="header-btn" onclick="app.startSystem()">STARTEN</button>
-            <div id="connection-dot" class="dot-red"></div> 
+            <h1>Neural Node <span class="version">v1.0</span></h1>
+            <div class="controls">
+                <button id="btn-connect" class="primary-btn">Verbinden</button>
+                <span id="status-indicator" class="status disconnected">Getrennt</span>
+            </div>
         </header>
 
-        <div id="status-display" class="status-safe">
-            <div id="main-status-text">BEREIT</div>
-            <div id="ai-reason">Warte auf Start...</div>
+        <div id="dashboard" class="grid-container blurred">
+            <div class="card">
+                <h3>WiFi Spectrum</h3>
+                <div class="metric">
+                    <span class="label">AP Count</span>
+                    <span class="value" id="val-wifi-count">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Noise Floor</span>
+                    <span class="value" id="val-wifi-rssi">--</span> <span class="unit">dBm</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Congestion</span>
+                    <span class="value" id="val-wifi-cong">--</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>BLE Environment</h3>
+                <div class="metric">
+                    <span class="label">Device Count</span>
+                    <span class="value" id="val-ble-count">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Proximity Peak</span>
+                    <span class="value" id="val-ble-max">--</span> <span class="unit">dBm</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Traffic Index</span>
+                    <span class="value" id="val-ble-traffic">--</span>
+                </div>
+            </div>
+
+            <div class="card meta-card">
+                <h3>Sync & Meta</h3>
+                <div class="metric">
+                    <span class="label">Device TS</span>
+                    <span class="value small" id="val-timestamp">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Latency</span>
+                    <span class="value small" id="val-latency">-- ms</span>
+                </div>
+            </div>
         </div>
 
-        <button id="btn-false-alarm" onclick="app.reportFalseAlarm()">✋ DAS WAR EIN FEHLALARM! (LERNEN)</button>
-
-        <div class="grid-stats">
-            <div class="card">
-                <div class="label">Objekte (Scan)</div>
-                <div class="value" id="val-objects">0</div>
+        <div class="debugger-section">
+            <h3>System Debugger & Raw Hex</h3>
+            <div id="console-log" class="console">
+                <div class="log-entry system">System bereit. Warten auf Verbindung...</div>
             </div>
-            <div class="card">
-                <div class="label">Lärm (Audio)</div>
-                <div class="value" id="val-audio">0 %</div>
-            </div>
-            <div class="card">
-                <div class="label">Vibration</div>
-                <div class="value" id="val-motion">0.0 G</div>
-            </div>
-        </div>
-
-        <div class="chart-box" style="height: 25vh;">
-            <canvas id="radarChart"></canvas>
-        </div>
-
-        <div class="chart-header">🧠 NEURAL NETWORK ACTIVITY (LOSS)</div>
-        <div class="chart-box" style="height: 15vh; border-top:none;">
-            <canvas id="lossChart"></canvas>
         </div>
     </div>
 
-    <div id="debug-panel">
-        <div class="debug-header">
-            <span>📡 LIVE TELEMETRY</span>
-            <div>
-                <span id="system-heartbeat" style="color:#555">●</span>
-                <button onclick="toggleDebug()" class="mini-btn">TOGGLE</button>
-            </div>
-        </div>
-        
-        <div class="telemetry-grid">
-            <div class="t-col">
-                <div class="t-head">TARGET (Nächstes)</div>
-                <div class="t-row"><span>ID:</span> <span id="tel-mac" style="color:#fff">--</span></div>
-                <div class="t-row"><span>RSSI:</span> <span id="tel-rssi" style="font-weight:bold">--</span></div>
-                <div class="t-row"><span>Buffer:</span> <span id="tel-buf">0/20</span></div>
-                <div class="t-row"><span>Rate:</span> <span id="tel-rate">0/s</span></div>
-            </div>
-
-            <div class="t-col">
-                <div class="t-head">PHYSICS</div>
-                <div class="t-row"><span>Acc:</span> <span id="tel-acc" style="color:#ffab00">0.00</span> G</div>
-                <div class="t-row"><span>Gyro:</span> <span id="tel-gyro" style="color:#ffab00">0</span> °/s</div>
-                <div class="t-row"><span>Audio:</span> <span id="tel-audio-dbg">0</span> %</div>
-            </div>
-
-            <div class="t-col">
-                <div class="t-head">NEURAL ENGINE</div>
-                <div class="t-row"><span>Loss:</span> <span id="tel-loss" style="color:#00d2ff">0.000</span></div>
-                <div class="t-row"><span>Limit:</span> <span id="tel-limit" style="color:#00d2ff">0.000</span></div>
-                <div class="t-row"><span>Status:</span> <span id="tel-status">IDLE</span></div>
-            </div>
-        </div>
-
-        <div id="console-output">System bereit.</div>
-    </div>
-
-    <script src="script.js"></script>
-    <script>
-        // UI Helfer für den Debugger
-        function toggleDebug() {
-            const p = document.getElementById('debug-panel');
-            p.style.height = p.style.height === '50vh' ? '220px' : '50vh';
-        }
-
-        window.onerror = function(msg, url, line) { log(`ERR: ${msg} (${line})`, 'error'); };
-        
-        function log(msg, type = 'info') {
-            const el = document.getElementById('console-output');
-            const time = new Date().toLocaleTimeString().split(' ')[0];
-            let color = '#888';
-            if(type === 'error') color = '#ff0055';
-            if(type === 'success') color = '#0f0';
-            if(type === 'ai') color = '#00d2ff';
-            if(type === 'learning') color = '#ffaa00';
-            
-            // Log sauber halten (max 50 Zeilen)
-            if(el.childElementCount > 50) el.removeChild(el.firstChild);
-            
-            el.innerHTML += `<div style="color:${color}; border-bottom:1px solid #1a1a1a; padding:2px;">[${time}] ${msg}</div>`;
-            el.scrollTop = el.scrollHeight;
-        }
-        
-        const app = new StaplerApp();
-    </script>
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>
