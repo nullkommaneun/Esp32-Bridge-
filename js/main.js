@@ -5,174 +5,182 @@ import { UI } from './ui.js';
 import { DataRecorder } from './recorder.js';
 import { NeuralBrain } from './brain.js';
 
-// --- SYSTEM INITIALIZATION ---
 const recorder = new DataRecorder();
 const brain = new NeuralBrain();
 
-// Global State
-let neuralInput = { 
-    groupA: {}, groupB: {}, groupC: {}, groupD: {} 
-};
+// Daten Container
+let neuralInput = { groupA: {}, groupB: {}, groupC: {}, groupD: {} };
+let lastEspState = { timestamp: 0, wifi_rssi: 0, ble_rssi: 0, lastReceived: 0 };
 
-// Delta Memory
-let lastEspState = { 
-    timestamp: 0, wifi_rssi: 0, ble_rssi: 0, lastReceived: 0 
-};
-
-// Learning Config
-const LEARNING_DURATION_MS = 120000; // 2 Minutes
-let learningTimer = null;
-let countdownInterval = null;
-
-// --- STARTUP ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Buttons
+    setupTabs();
+    
     const btnConnect = document.getElementById('btn-connect');
-    const btnLearn = document.getElementById('btn-learn') || document.getElementById('btn-record');
+    const btnRecord = document.getElementById('btn-auto-record');
+    const btnTrain = document.getElementById('btn-start-train');
+    const fileInput = document.getElementById('csv-upload');
+    const ble = new BLEManager(handleEspData, UI.log, updateConnectionStatus);
 
-    // BLE Manager
-    const ble = new BLEManager(handleEspData, UI.log, UI.setStatus);
+    // 1. CONNECT
+    btnConnect.addEventListener('click', async () => {
+        try { await PhoneSensors.init(); } catch (e) { console.warn(e); }
+        ble.connect();
+        requestAnimationFrame(fusionLoop);
+    });
 
-    // 1. AUTO-LEARNING LOGIC (2 Minute Timer)
-    if (btnLearn) {
-        btnLearn.addEventListener('click', async () => {
+    // 2. AUTO-RECORD (Tab 1)
+    btnRecord.addEventListener('click', () => {
+        startAutoRecording(btnRecord);
+    });
+
+    // 3. FILE UPLOAD (Tab 2)
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            btnTrain.disabled = false;
+            document.getElementById('train-log').textContent = "Datei bereit. Klicke auf 'Start'.";
+        }
+    });
+
+    // 4. TRAINING STARTEN (Tab 2)
+    btnTrain.addEventListener('click', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        
+        btnTrain.disabled = true;
+        btnTrain.textContent = "⏳ Lese Datei...";
+        
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const csvText = e.target.result;
+            const data = parseCSV(csvText);
             
-            // IF IDLE -> START 2 MINUTE LEARNING
-            if (!recorder.isRecording && !brain.isTraining) {
-                startAutoLearning(btnLearn);
-            } 
-            // IF RECORDING -> MANUAL ABORT (Optional safety)
-            else if (recorder.isRecording) {
-                stopAutoLearning(btnLearn, false); // False = Aborted
+            document.getElementById('train-log').textContent = `Lerne aus ${data.length} Datensätzen...`;
+            
+            // Training starten
+            const success = await brain.train(data);
+            
+            if (success) {
+                document.getElementById('train-log').textContent = "✅ Training erfolgreich! KI ist aktiv.";
+                btnTrain.textContent = "Fertig";
+                document.getElementById('ai-output').classList.remove('blurred');
+                document.getElementById('ai-status').textContent = "AKTIV";
+                document.getElementById('ai-status').style.color = "#2ea043";
+            } else {
+                document.getElementById('train-log').textContent = "❌ Fehler beim Training.";
+                btnTrain.disabled = false;
             }
-        });
-    } else {
-        console.error("CRITICAL: Learn button not found!");
-        UI.log("GUI Error: Button missing.", "error");
-    }
-
-    // 2. CONNECT LOGIC
-    if (btnConnect) {
-        btnConnect.addEventListener('click', async () => {
-            try { 
-                await PhoneSensors.init(); 
-                UI.log("Sensoren bereit.", "success");
-            } catch (e) { console.warn(e); }
-            ble.connect();
-            requestAnimationFrame(fusionLoop);
-        });
-    }
+        };
+        reader.readAsText(file);
+    });
 });
 
-// --- HELPER FUNCTIONS FOR LEARNING ---
+// --- HELPER: CSV PARSER ---
+function parseCSV(text) {
+    const lines = text.trim().split('\n');
+    const data = [];
+    // Überspringe Header (Zeile 0), starte bei 1
+    for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(',').map(Number);
+        // Wir brauchen Spalten 1 bis 16 (ohne Time und Label)
+        // Format: Time, N1...N16, Label
+        if (row.length >= 17) {
+            data.push(row.slice(1, 17));
+        }
+    }
+    return data;
+}
 
-function startAutoLearning(btn) {
+// --- HELPER: AUTO RECORDING ---
+function startAutoRecording(btn) {
+    if (recorder.isRecording) return; // Schutz
+
+    let timeLeft = 120; // 2 Minuten
+    
     recorder.start();
     btn.classList.add('recording');
     
-    UI.log("🚨 LERN-MODUS AKTIV: Fahre 2 Minuten normal!", "info");
-    
-    let timeLeft = LEARNING_DURATION_MS / 1000;
-    
-    // Countdown Timer UI
-    countdownInterval = setInterval(() => {
+    const interval = setInterval(() => {
         timeLeft--;
-        btn.textContent = `⏳ ${timeLeft}s`;
-        if(timeLeft <= 0) clearInterval(countdownInterval);
+        btn.textContent = `⏳ Aufnahme läuft... ${timeLeft}s`;
+        
+        if (timeLeft <= 0) {
+            clearInterval(interval);
+            recorder.stop(); // Lädt CSV herunter
+            btn.classList.remove('recording');
+            btn.textContent = "✅ Fertig (Download)";
+            setTimeout(() => { btn.textContent = "🔴 Start Aufnahme (2min)"; }, 5000);
+        }
     }, 1000);
-
-    // Auto-Stop Timer
-    learningTimer = setTimeout(() => {
-        stopAutoLearning(btn, true); // True = Success/Time Done
-    }, LEARNING_DURATION_MS);
 }
 
-function stopAutoLearning(btn, completed) {
-    // Clear Timers
-    clearTimeout(learningTimer);
-    clearInterval(countdownInterval);
-    
-    recorder.stop(); // Stop recording, data is in buffer
-    btn.classList.remove('recording');
+// --- TAB LOGIK ---
+function setupTabs() {
+    const tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            tab.classList.add('active');
+            document.getElementById(tab.dataset.tab).classList.add('active');
+        });
+    });
+}
 
-    if (!completed) {
-        btn.textContent = "🧠 Lernen (Start)";
-        UI.log("Lernvorgang abgebrochen.", "warning");
-        return;
+function updateConnectionStatus(text, cls) {
+    const el = document.getElementById('connection-status');
+    if (el) {
+        el.textContent = text;
+        el.className = `status ${cls}`;
+    }
+    // Buttons freischalten wenn verbunden
+    if (cls === 'connected') {
+        document.getElementById('dashboard').classList.remove('blurred');
+        document.getElementById('btn-auto-record').disabled = false;
+    }
+}
+
+// --- FUSION LOOP ---
+function fusionLoop() {
+    neuralInput.groupA = PhoneSensors.data;
+    UI.updateNeuralVector(neuralInput);
+
+    // AI Prediction (Nur wenn Brain trainiert ist)
+    if (!brain.isTraining && brain.model && neuralInput.groupB.proximity !== undefined) {
+        const prediction = brain.process(neuralInput);
+        
+        document.getElementById('out-safe').style.width = (prediction.safe * 100) + "%";
+        document.getElementById('out-warn').style.width = (prediction.warn * 100) + "%";
+        document.getElementById('out-danger').style.width = (prediction.danger * 100) + "%";
     }
 
-    // Start Training Sequence
-    btn.textContent = "⚙️ Training...";
-    UI.log(`Zeit um! Trainiere mit ${recorder.buffer.length} Datensätzen...`, "info");
-
-    const trainingData = recorder.buffer.map(row => row.slice(1, 17));
-
-    // Async Training
-    setTimeout(async () => {
-        const success = await brain.train(trainingData);
-        if (success) {
-            btn.textContent = "✅ AI Aktiv";
-            btn.classList.add('active-brain'); 
-            UI.log("System Kalibriert & Scharf geschaltet.", "success");
-        } else {
-            btn.textContent = "❌ Fehler";
-            UI.log("Training fehlgeschlagen.", "error");
-        }
-    }, 100);
+    if (recorder.isRecording && neuralInput.groupB.proximity !== undefined) {
+        recorder.record(neuralInput);
+    }
+    
+    requestAnimationFrame(fusionLoop);
 }
 
-// --- DATA PROCESSING (unchanged logic) ---
+// --- ESP DATA HANDLER (wie gehabt) ---
 function handleEspData(dataView) {
     try {
         const now = Date.now();
         const raw = parsePacket(dataView);
         if(!raw) return;
 
-        let ratio = 0.0;
-        if (raw.infra_density > 0) ratio = raw.object_count / raw.infra_density;
-
-        let ageGap = 0;
-        if (lastEspState.timestamp > 0) {
-            let delta = raw.timestamp - lastEspState.timestamp;
-            if (delta > 0 && delta < 10000) ageGap = delta;
-        }
-
-        let latency = 0;
-        if (lastEspState.lastReceived > 0) latency = now - lastEspState.lastReceived;
+        let ratio = (raw.infra_density > 0) ? raw.object_count / raw.infra_density : 0;
+        let ageGap = (lastEspState.timestamp > 0) ? raw.timestamp - lastEspState.timestamp : 0;
+        if (ageGap < 0 || ageGap > 10000) ageGap = 0;
+        let latency = (lastEspState.lastReceived > 0) ? now - lastEspState.lastReceived : 0;
 
         let stability = Math.abs(raw.env_snr - (lastEspState.wifi_rssi || raw.env_snr));
         let velocity = raw.object_proximity - (lastEspState.ble_rssi || raw.object_proximity);
 
-        lastEspState.timestamp = raw.timestamp;
-        lastEspState.lastReceived = now;
-        lastEspState.wifi_rssi = raw.env_snr;
-        lastEspState.ble_rssi = raw.object_proximity;
+        lastEspState = { timestamp: raw.timestamp, lastReceived: now, wifi_rssi: raw.env_snr, ble_rssi: raw.object_proximity };
 
-        neuralInput.groupB = { proximity: raw.infra_proximity, stability: stability, density: raw.infra_density, snr: raw.env_snr };
-        neuralInput.groupC = { proximity: raw.object_proximity, velocity: velocity, count: raw.object_count, spread: raw.object_spread };
-        neuralInput.groupD = { ratio: ratio, ageGap: ageGap, latency: latency };
+        neuralInput.groupB = { proximity: raw.infra_proximity, stability, density: raw.infra_density, snr: raw.env_snr };
+        neuralInput.groupC = { proximity: raw.object_proximity, velocity, count: raw.object_count, spread: raw.object_spread };
+        neuralInput.groupD = { ratio, ageGap, latency };
 
-    } catch (e) { console.error("Fusion Error:", e); }
-}
-
-// --- MAIN LOOP ---
-function fusionLoop() {
-    neuralInput.groupA = PhoneSensors.data;
-    UI.updateNeuralVector(neuralInput);
-
-    // AI Prediction & Recording
-    if (neuralInput.groupB.proximity !== undefined) {
-        const prediction = brain.process(neuralInput);
-        
-        const safeBar = document.getElementById('out-safe');
-        const warnBar = document.getElementById('out-warn');
-        const dangBar = document.getElementById('out-danger');
-
-        if(safeBar) safeBar.style.width = (prediction.safe * 100) + "%";
-        if(warnBar) warnBar.style.width = (prediction.warn * 100) + "%";
-        if(dangBar) dangBar.style.width = (prediction.danger * 100) + "%";
-
-        recorder.record(neuralInput);
-    }
-    requestAnimationFrame(fusionLoop);
+    } catch (e) { console.error(e); }
 }
