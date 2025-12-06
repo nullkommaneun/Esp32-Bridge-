@@ -6,7 +6,27 @@
     <title>Neural Sensor Fusion Node</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-</head>
+
+    <script>
+        window.onerror = function(msg, url, line) {
+            const log = document.getElementById('console-log');
+            if(log) {
+                // Fehler rot und fett oben anfügen
+                log.innerHTML = `<div style="color:#ff4444; border:1px solid red; padding:5px; margin-bottom:5px;">
+                    <strong>SYSTEM CRASH:</strong><br>${msg}<br>
+                    <small>Datei: ${url.split('/').pop()} Zeile: ${line}</small>
+                    </div>` + log.innerHTML;
+            }
+            return false;
+        };
+        // Auch Import-Fehler (falsche Dateinamen) fangen
+        window.addEventListener('unhandledrejection', function(e) {
+             const log = document.getElementById('console-log');
+             if(log) log.innerHTML = `<div style="color:#ff4444; border:1px solid red;"><strong>LADE-FEHLER:</strong><br>${e.reason}</div>` + log.innerHTML;
+        });
+    </script>
+    </head>
+
 <body>
 
     <div class="container">
