@@ -1,55 +1,46 @@
-// js/ui.js
-
 const consoleEl = document.getElementById('console-log');
 const statusEl = document.getElementById('status-indicator');
 const dashboardEl = document.getElementById('dashboard');
 
 export const UI = {
-    // Liste aller 16 IDs
-    updateAll(espData, phoneData) {
-        // --- ESP32 DATEN (Wenn vorhanden) ---
-        if (espData) {
-            setText('n6-wifi-count', espData.wifi_count);
-            setText('n7-wifi-rssi', espData.wifi_avg_rssi + " dB");
-            setText('n8-wifi-cong', espData.wifi_cong_peak);
-            
-            setText('n10-ble-count', espData.ble_dev_count);
-            setText('n11-ble-rssi', espData.ble_max_rssi + " dB");
-            setText('n12-ble-traffic', espData.ble_traffic_idx);
+    updateNeuralVector(input) {
+        // Gruppe A: Physik
+        setVal('n1', input.groupA.accSurge, 2);
+        setVal('n2', input.groupA.accSway, 2);
+        setVal('n3', input.groupA.accHeave, 2);
+        setVal('n4', input.groupA.gyroYaw, 1);
+        setVal('n5', input.groupA.kineticEnergy, 2);
 
-            // N14: Scan Age (Differenz zwischen Jetzt und ESP Timestamp)
-            // Achtung: ESP Timestamp resettet bei Boot. 
-            // Hier zeigen wir einfach den rohen Timestamp-Delta des Pakets an
-            // Ein echter Sync wäre komplexer (NTP), für jetzt reicht "Ping".
-            const age = Date.now() - espData._receiveTime; 
-            setText('n14-age', age + " ms");
+        // Gruppe B: Infrastruktur
+        if (input.groupB.proximity) {
+            setVal('n6', input.groupB.proximity, 0, ' dBm');
+            setVal('n7', input.groupB.stability, 0, ' Δ');
+            setVal('n8', input.groupB.density, 0);
+            setVal('n9', input.groupB.snr, 0, ' dB');
         }
 
-        // --- PHONE DATEN (Sensoren) ---
-        if (phoneData) {
-            setNum('n1-acc-x', phoneData.accX, 2);
-            setNum('n2-acc-y', phoneData.accY, 2);
-            setNum('n3-acc-z', phoneData.accZ, 2);
-            
-            setNum('n4-gyro-z', phoneData.gyroZ, 1);
-            setNum('n5-jerk', phoneData.jerk, 1);
-            
-            setNum('n9-gps-speed', phoneData.gpsSpeed, 1);
-            
-            // Audio (0-255) skalieren auf 0.0 - 1.0 für NN
-            const audioNorm = phoneData.audioLevel / 255.0;
-            setNum('n13-audio', audioNorm, 3);
-            
-            setText('n16-batt', phoneData.battery + "%");
+        // Gruppe C: Reflex
+        if (input.groupC.proximity) {
+            setVal('n10', input.groupC.proximity, 0, ' dBm');
+            setVal('n11', input.groupC.velocity, 0, ' Δ');
+            setVal('n12', input.groupC.count, 0);
+            setVal('n13', input.groupC.spread, 0);
+        }
+
+        // Gruppe D: Meta
+        if (input.groupD.ratio !== undefined) {
+            setVal('n14', input.groupD.ratio, 2);
+            setVal('n15', input.groupD.ageGap, 0, ' ms');
+            setVal('n16', input.groupD.latency, 0, ' ms');
         }
     },
-
+    
     log(msg, type="info") {
         const entry = document.createElement('div');
         entry.className = `log-entry ${type}`;
         const time = new Date().toLocaleTimeString().split(' ')[0];
         entry.textContent = `[${time}] ${msg}`;
-        consoleEl.prepend(entry); // Neueste oben
+        consoleEl.prepend(entry);
     },
 
     setStatus(text, className) {
@@ -59,12 +50,10 @@ export const UI = {
     }
 };
 
-// Hilfsfunktionen
-function setText(id, val) {
+function setVal(id, val, decimals, suffix='') {
     const el = document.getElementById(id);
-    if(el) el.textContent = val;
+    if(el && val !== undefined && val !== null) {
+        el.textContent = val.toFixed(decimals) + suffix;
+    }
 }
-function setNum(id, val, decimals) {
-    const el = document.getElementById(id);
-    if(el && typeof val === 'number') el.textContent = val.toFixed(decimals);
-}
+ 
