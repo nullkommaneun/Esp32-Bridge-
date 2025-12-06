@@ -10,7 +10,7 @@
 
     <div class="container">
         <header>
-            <h1>Neural Node <span class="version">v1.1 Fusion</span></h1>
+            <h1>Neural Node <span class="version">v2.0 Vector</span></h1>
             <div class="controls">
                 <button id="btn-connect" class="primary-btn">System Starten</button>
                 <div id="status-indicator" class="status disconnected">Standby</div>
@@ -20,40 +20,40 @@
         <div id="dashboard" class="grid-container blurred">
             
             <div class="card physics">
-                <h3>A. Phone Physics</h3>
-                <div class="metric"><span class="label">N1: Acc X (Surge)</span> <span class="value" id="n1-acc-x">0.00</span></div>
-                <div class="metric"><span class="label">N2: Acc Y (Sway)</span> <span class="value" id="n2-acc-y">0.00</span></div>
-                <div class="metric"><span class="label">N3: Acc Z (Heave)</span> <span class="value" id="n3-acc-z">0.00</span></div>
-                <div class="metric"><span class="label">N4: Gyro Z (Yaw)</span> <span class="value" id="n4-gyro-z">0.00</span></div>
-                <div class="metric"><span class="label">N5: Jerk (Impact)</span> <span class="value" id="n5-jerk">0.00</span></div>
+                <h3>A. Eigenbewegung (50Hz)</h3>
+                <div class="metric"><span class="label">N1: Acc Surge (X)</span> <span class="value" id="n1">0.00</span></div>
+                <div class="metric"><span class="label">N2: Acc Sway (Y)</span> <span class="value" id="n2">0.00</span></div>
+                <div class="metric"><span class="label">N3: Acc Heave (Z)</span> <span class="value" id="n3">0.00</span></div>
+                <div class="metric"><span class="label">N4: Gyro Yaw (Z)</span> <span class="value" id="n4">0.00</span></div>
+                <div class="metric"><span class="label">N5: Kinetic Energy</span> <span class="value" id="n5">0.00</span></div>
             </div>
 
             <div class="card spectrum">
-                <h3>B. WiFi & GPS</h3>
-                <div class="metric"><span class="label">N6: WiFi Count</span> <span class="value text-esp" id="n6-wifi-count">--</span></div>
-                <div class="metric"><span class="label">N7: Noise Floor</span> <span class="value text-esp" id="n7-wifi-rssi">--</span></div>
-                <div class="metric"><span class="label">N8: Congestion</span> <span class="value text-esp" id="n8-wifi-cong">--</span></div>
-                <div class="metric"><span class="label">N9: GPS Speed</span> <span class="value" id="n9-gps-speed">0.0</span></div>
+                <h3>B. Infrastruktur (1Hz)</h3>
+                <div class="metric"><span class="label">N6: Infra Proximity</span> <span class="value text-esp" id="n6">--</span></div>
+                <div class="metric"><span class="label">N7: Infra Stability</span> <span class="value text-esp" id="n7">--</span></div>
+                <div class="metric"><span class="label">N8: Infra Density</span> <span class="value text-esp" id="n8">--</span></div>
+                <div class="metric"><span class="label">N9: Env SNR</span> <span class="value text-esp" id="n9">--</span></div>
             </div>
 
             <div class="card env">
-                <h3>C. Dynamic Env</h3>
-                <div class="metric"><span class="label">N10: BLE Count</span> <span class="value text-esp" id="n10-ble-count">--</span></div>
-                <div class="metric"><span class="label">N11: Proximity</span> <span class="value text-esp" id="n11-ble-rssi">--</span></div>
-                <div class="metric"><span class="label">N12: Traffic Idx</span> <span class="value text-esp" id="n12-ble-traffic">--</span></div>
-                <div class="metric"><span class="label">N13: Audio RMS</span> <span class="value" id="n13-audio">0.00</span></div>
+                <h3>C. Gefahr / Reflex (10Hz)</h3>
+                <div class="metric"><span class="label">N10: Obj Proximity</span> <span class="value text-esp" id="n10">--</span></div>
+                <div class="metric"><span class="label">N11: Obj Velocity</span> <span class="value text-esp" id="n11">--</span></div>
+                <div class="metric"><span class="label">N12: Obj Count</span> <span class="value text-esp" id="n12">--</span></div>
+                <div class="metric"><span class="label">N13: Obj Spread</span> <span class="value text-esp" id="n13">--</span></div>
             </div>
 
             <div class="card meta-card">
-                <h3>D. System State</h3>
-                <div class="metric"><span class="label">N14: Scan Age</span> <span class="value text-esp" id="n14-age">0 ms</span></div>
-                <div class="metric"><span class="label">N15: Confidence</span> <span class="value" id="n15-conf">1.0</span></div>
-                <div class="metric"><span class="label">N16: Battery</span> <span class="value" id="n16-batt">--%</span></div>
+                <h3>D. Metadaten</h3>
+                <div class="metric"><span class="label">N14: Human/Mach Ratio</span> <span class="value text-esp" id="n14">0.00</span></div>
+                <div class="metric"><span class="label">N15: Data Age Gap</span> <span class="value text-esp" id="n15">0</span></div>
+                <div class="metric"><span class="label">N16: Scan Latency</span> <span class="value" id="n16">0</span></div>
             </div>
         </div>
 
         <div class="debugger-section">
-            <h3>Fusion Log</h3>
+            <h3>Neural Logs</h3>
             <div id="console-log" class="console">
                 <div class="log-entry system">Warte auf Start...</div>
             </div>
