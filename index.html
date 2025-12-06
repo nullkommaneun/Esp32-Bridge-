@@ -5,14 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Neural Sensor Fusion Node</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
 </head>
 <body>
 
     <div class="container">
         <header>
-            <h1>Neural Node <span class="version">v2.0 Vector</span></h1>
+            <h1>Neural Node <span class="version">v3.0 Brain</span></h1>
             <div class="controls">
                 <button id="btn-connect" class="primary-btn">System Starten</button>
+                <button id="btn-record" class="record-btn">⚫ Rec</button>
                 <div id="status-indicator" class="status disconnected">Standby</div>
             </div>
         </header>
@@ -45,17 +47,36 @@
             </div>
 
             <div class="card meta-card">
-                <h3>D. Metadaten</h3>
+                <h3>D. Kontext & Meta</h3>
                 <div class="metric"><span class="label">N14: Human/Mach Ratio</span> <span class="value text-esp" id="n14">0.00</span></div>
                 <div class="metric"><span class="label">N15: Data Age Gap</span> <span class="value text-esp" id="n15">0</span></div>
                 <div class="metric"><span class="label">N16: Scan Latency</span> <span class="value" id="n16">0</span></div>
+            </div>
+
+            <div class="card output-layer" style="grid-column: 1 / -1;">
+                <h3>🧠 Neural Network Prediction (Live)</h3>
+                
+                <div class="bar-container">
+                    <span class="label">O1: Sicher (Normal)</span>
+                    <div class="bar-bg"><div id="out-safe" class="bar-fill safe" style="width: 100%;"></div></div>
+                </div>
+                
+                <div class="bar-container">
+                    <span class="label">O2: Vorsicht (Warning)</span>
+                    <div class="bar-bg"><div id="out-warn" class="bar-fill warn" style="width: 0%;"></div></div>
+                </div>
+                
+                <div class="bar-container">
+                    <span class="label">O3: Gefahr! (Critical)</span>
+                    <div class="bar-bg"><div id="out-danger" class="bar-fill danger" style="width: 0%;"></div></div>
+                </div>
             </div>
         </div>
 
         <div class="debugger-section">
             <h3>Neural Logs</h3>
             <div id="console-log" class="console">
-                <div class="log-entry system">Warte auf Start...</div>
+                <div class="log-entry system">System bereit. Warte auf Start...</div>
             </div>
         </div>
     </div>
@@ -63,3 +84,4 @@
     <script type="module" src="js/main.js"></script>
 </body>
 </html>
+ 
