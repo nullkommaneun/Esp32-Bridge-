@@ -3,105 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neural Sensor Fusion Node</title>
+    <title>Neural Node v4.0</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-
-    <script>
-        window.onerror = function(msg, url, line) {
-            const log = document.getElementById('console-log');
-            if(log) {
-                // Fehler rot und fett oben anfügen
-                log.innerHTML = `<div style="color:#ff4444; border:1px solid red; padding:5px; margin-bottom:5px;">
-                    <strong>SYSTEM CRASH:</strong><br>${msg}<br>
-                    <small>Datei: ${url.split('/').pop()} Zeile: ${line}</small>
-                    </div>` + log.innerHTML;
-            }
-            return false;
-        };
-        // Auch Import-Fehler (falsche Dateinamen) fangen
-        window.addEventListener('unhandledrejection', function(e) {
-             const log = document.getElementById('console-log');
-             if(log) log.innerHTML = `<div style="color:#ff4444; border:1px solid red;"><strong>LADE-FEHLER:</strong><br>${e.reason}</div>` + log.innerHTML;
-        });
-    </script>
-    </head>
-
+</head>
 <body>
 
     <div class="container">
         <header>
-            <h1>Neural Node <span class="version">v3.0 Brain</span></h1>
-            <div class="controls">
-                <button id="btn-connect" class="primary-btn">System Starten</button>
-                <button id="btn-record" class="record-btn">⚫ Rec</button>
-                <div id="status-indicator" class="status disconnected">Standby</div>
-            </div>
+            <h1>Neural Fusion <span class="version">v4.0</span></h1>
+            <div id="connection-status" class="status disconnected">Getrennt</div>
         </header>
 
-        <div id="dashboard" class="grid-container blurred">
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="tab-record">📡 1. Aufnahme</button>
+            <button class="tab-btn" data-tab="tab-train">🧠 2. KI Brain</button>
+        </div>
+
+        <div id="tab-record" class="tab-content active">
             
-            <div class="card physics">
-                <h3>A. Eigenbewegung (50Hz)</h3>
-                <div class="metric"><span class="label">N1: Acc Surge (X)</span> <span class="value" id="n1">0.00</span></div>
-                <div class="metric"><span class="label">N2: Acc Sway (Y)</span> <span class="value" id="n2">0.00</span></div>
-                <div class="metric"><span class="label">N3: Acc Heave (Z)</span> <span class="value" id="n3">0.00</span></div>
-                <div class="metric"><span class="label">N4: Gyro Yaw (Z)</span> <span class="value" id="n4">0.00</span></div>
-                <div class="metric"><span class="label">N5: Kinetic Energy</span> <span class="value" id="n5">0.00</span></div>
+            <div class="controls-area">
+                <button id="btn-connect" class="primary-btn">🔌 System Verbinden</button>
+                <button id="btn-auto-record" class="record-btn" disabled>🔴 Start Aufnahme (2min)</button>
             </div>
 
-            <div class="card spectrum">
-                <h3>B. Infrastruktur (1Hz)</h3>
-                <div class="metric"><span class="label">N6: Infra Proximity</span> <span class="value text-esp" id="n6">--</span></div>
-                <div class="metric"><span class="label">N7: Infra Stability</span> <span class="value text-esp" id="n7">--</span></div>
-                <div class="metric"><span class="label">N8: Infra Density</span> <span class="value text-esp" id="n8">--</span></div>
-                <div class="metric"><span class="label">N9: Env SNR</span> <span class="value text-esp" id="n9">--</span></div>
+            <div id="dashboard" class="grid-container blurred">
+                <div class="card physics">
+                    <h3>A. Eigenbewegung</h3>
+                    <div class="metric"><span class="label">N1 AccX</span> <span class="value" id="n1">0.00</span></div>
+                    <div class="metric"><span class="label">N2 AccY</span> <span class="value" id="n2">0.00</span></div>
+                    <div class="metric"><span class="label">N3 AccZ</span> <span class="value" id="n3">0.00</span></div>
+                    <div class="metric"><span class="label">N4 Gyro</span> <span class="value" id="n4">0.00</span></div>
+                    <div class="metric"><span class="label">N5 Energy</span> <span class="value" id="n5">0.00</span></div>
+                </div>
+                <div class="card spectrum">
+                    <h3>B. Infrastruktur</h3>
+                    <div class="metric"><span class="label">N6 Prox</span> <span class="value text-esp" id="n6">--</span></div>
+                    <div class="metric"><span class="label">N7 Stab</span> <span class="value text-esp" id="n7">--</span></div>
+                    <div class="metric"><span class="label">N8 Dens</span> <span class="value text-esp" id="n8">--</span></div>
+                    <div class="metric"><span class="label">N9 SNR</span> <span class="value text-esp" id="n9">--</span></div>
+                </div>
+                <div class="card env">
+                    <h3>C. Gefahr / Reflex</h3>
+                    <div class="metric"><span class="label">N10 Prox</span> <span class="value text-esp" id="n10">--</span></div>
+                    <div class="metric"><span class="label">N11 Vel</span> <span class="value text-esp" id="n11">--</span></div>
+                    <div class="metric"><span class="label">N12 Count</span> <span class="value text-esp" id="n12">--</span></div>
+                    <div class="metric"><span class="label">N13 Spread</span> <span class="value text-esp" id="n13">--</span></div>
+                </div>
+                <div class="card meta-card">
+                    <h3>D. Meta</h3>
+                    <div class="metric"><span class="label">N14 Ratio</span> <span class="value text-esp" id="n14">0.00</span></div>
+                    <div class="metric"><span class="label">N15 Gap</span> <span class="value text-esp" id="n15">0</span></div>
+                    <div class="metric"><span class="label">N16 Lat</span> <span class="value" id="n16">0</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-train" class="tab-content">
+            
+            <div class="train-box">
+                <h3>Schritt 1: Daten laden</h3>
+                <p>Lade die CSV-Datei hoch, die du in Tab 1 aufgenommen hast.</p>
+                <input type="file" id="csv-upload" accept=".csv" class="file-input">
             </div>
 
-            <div class="card env">
-                <h3>C. Gefahr / Reflex (10Hz)</h3>
-                <div class="metric"><span class="label">N10: Obj Proximity</span> <span class="value text-esp" id="n10">--</span></div>
-                <div class="metric"><span class="label">N11: Obj Velocity</span> <span class="value text-esp" id="n11">--</span></div>
-                <div class="metric"><span class="label">N12: Obj Count</span> <span class="value text-esp" id="n12">--</span></div>
-                <div class="metric"><span class="label">N13: Obj Spread</span> <span class="value text-esp" id="n13">--</span></div>
+            <div class="train-box">
+                <h3>Schritt 2: Gehirn trainieren</h3>
+                <button id="btn-start-train" class="primary-btn" disabled>⚙️ Training Starten</button>
+                <div id="train-log" class="train-log">Warte auf Datei...</div>
             </div>
 
-            <div class="card meta-card">
-                <h3>D. Kontext & Meta</h3>
-                <div class="metric"><span class="label">N14: Human/Mach Ratio</span> <span class="value text-esp" id="n14">0.00</span></div>
-                <div class="metric"><span class="label">N15: Data Age Gap</span> <span class="value text-esp" id="n15">0</span></div>
-                <div class="metric"><span class="label">N16: Scan Latency</span> <span class="value" id="n16">0</span></div>
-            </div>
-
-            <div class="card output-layer" style="grid-column: 1 / -1;">
-                <h3>🧠 Neural Network Prediction (Live)</h3>
+            <div id="ai-output" class="card output-layer blurred">
+                <h3>🧠 KI Status: <span id="ai-status">Inaktiv</span></h3>
                 
                 <div class="bar-container">
-                    <span class="label">O1: Sicher (Normal)</span>
+                    <span class="label">O1: Sicher</span>
                     <div class="bar-bg"><div id="out-safe" class="bar-fill safe" style="width: 100%;"></div></div>
                 </div>
-                
                 <div class="bar-container">
-                    <span class="label">O2: Vorsicht (Warning)</span>
+                    <span class="label">O2: Warnung</span>
                     <div class="bar-bg"><div id="out-warn" class="bar-fill warn" style="width: 0%;"></div></div>
                 </div>
-                
                 <div class="bar-container">
-                    <span class="label">O3: Gefahr! (Critical)</span>
+                    <span class="label">O3: Gefahr</span>
                     <div class="bar-bg"><div id="out-danger" class="bar-fill danger" style="width: 0%;"></div></div>
                 </div>
             </div>
         </div>
 
         <div class="debugger-section">
-            <h3>Neural Logs</h3>
-            <div id="console-log" class="console">
-                <div class="log-entry system">System bereit. Warte auf Start...</div>
-            </div>
+            <div id="console-log" class="console">System Ready.</div>
         </div>
     </div>
 
     <script type="module" src="js/main.js"></script>
 </body>
 </html>
- 
+2
