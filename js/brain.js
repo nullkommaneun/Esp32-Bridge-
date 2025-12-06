@@ -2,182 +2,196 @@ export class NeuralBrain {
     constructor() {
         this.model = null;
         this.isTraining = false;
-        this.historySize = 50; // Wir schauen 1 Sekunde zurück (50 frames @ 20ms)
-        this.futureSteps = 5;  // Wir schauen 100ms in die Zukunft
-        
-        // Puffer für die Live-Daten
+        this.historySize = 50; 
+        this.futureSteps = 5;  
         this.inputBuffer = []; 
         
-        // Grenzwerte (werden beim Lernen verfeinert)
-        this.thresholds = {
-            proximity: -40, // Ab hier wird's eng (dBm)
-            kinetic: 3.0    // Ab hier ist es ein Crash
+        // Speicher für Min/Max Werte zur Normalisierung
+        this.normalization = {
+            min: new Array(16).fill(0),
+            max: new Array(16).fill(1)
         };
     }
 
-    // Erstellt das neuronale Netz (LSTM Architektur)
-    createModel(inputShape) {
-        const model = tf.sequential();
-        
-        // LSTM Layer: Versteht Zeitreihen und Zusammenhänge
-        model.add(tf.layers.lstm({
-            units: 32, // Anzahl der "Gedankenstränge"
-            inputShape: inputShape, // [50, 16]
-            returnSequences: false
-        }));
-        
-        // Dense Layer: Die Entscheidungsschicht
-        // Wir sagen vorher: [Proximity_Future, Kinetic_Future]
-        model.add(tf.layers.dense({ units: 2, activation: 'linear' }));
-
-        model.compile({
-            optimizer: tf.train.adam(0.01),
-            loss: 'meanSquaredError'
-        });
-
-        return model;
-    }
-
-    // --- TRAINING (Lernen aus CSV Daten) ---
+    // --- TRAINING ---
     async train(recordedData) {
-        if (recordedData.length < this.historySize + this.futureSteps) {
+        if (typeof tf === 'undefined') {
+            console.error("TensorFlow nicht geladen!");
+            return false;
+        }
+
+        if (recordedData.length < this.historySize + this.futureSteps + 10) {
             console.warn("Zu wenig Daten!");
             return false;
         }
 
-        console.log("🧠 Starte LSTM Training...");
         this.isTraining = true;
+        console.log("Brain: Analysiere Datenbereich (Min/Max)...");
 
-        // 1. Daten vorbereiten (Sliding Window)
-        // Input (X): 50 Schritte Vergangenheit
-        // Output (Y): Der Wert in der Zukunft (Prediction Target)
+        // 1. Min/Max berechnen für Normalisierung
+        this.calculateMinMax(recordedData);
+
+        // 2. Daten normalisieren (alles auf 0.0 bis 1.0 bringen)
+        const normalizedData = recordedData.map(row => this.normalizeVector(row));
+
         const inputs = [];
         const targets = [];
 
-        // Wir nutzen nur relevante Features für die Vorhersage, um Rechenleistung zu sparen
-        // Wir nehmen den ganzen Vektor (16 Features) als Input
-        // Aber wir versuchen nur Proximity (Gefahr) und Kinetik (Crash) vorherzusagen.
+        console.log("Brain: Erstelle Tensoren...");
 
-        for (let i = 0; i < recordedData.length - this.historySize - this.futureSteps; i++) {
-            // X: Das Fenster [i ... i+50]
-            const window = recordedData.slice(i, i + this.historySize);
+        // Sliding Window
+        for (let i = 0; i < normalizedData.length - this.historySize - this.futureSteps; i++) {
+            const window = normalizedData.slice(i, i + this.historySize);
             inputs.push(window);
 
-            // Y: Der Wert in der Zukunft [i+55]
-            // Wir nehmen den MAXIMALEN Wert der nächsten Schritte (Worst Case Prediction)
-            let maxProx = -120;
+            // Prediction Targets (Normalized!)
+            // Index 9 = Proximity (C), Index 4 = Kinetic (A)
+            let maxProx = 0;
             let maxKin = 0;
             for(let j=1; j<=this.futureSteps; j++) {
-                const futureFrame = recordedData[i + this.historySize + j];
-                // Feature Indizes: 9=Prox(C), 14=Kinetic(A) -> Müssen wir mappen
-                // Wir nutzen die Hilfsfunktion flattenInput, daher wissen wir die Positionen:
-                // Prox(C) ist Index 9. Kinetic(A) ist Index 4.
+                const futureFrame = normalizedData[i + this.historySize + j];
                 if(futureFrame[9] > maxProx) maxProx = futureFrame[9];
                 if(futureFrame[4] > maxKin) maxKin = futureFrame[4];
             }
             targets.push([maxProx, maxKin]);
         }
 
-        // In Tensoren umwandeln
-        const xs = tf.tensor3d(inputs); // Shape [Batch, 50, 16]
-        const ys = tf.tensor2d(targets); // Shape [Batch, 2]
+        const xs = tf.tensor3d(inputs); 
+        const ys = tf.tensor2d(targets); 
 
-        // Modell bauen (falls noch nicht da)
+        // Modell erstellen
         if (!this.model) {
-            this.model = this.createModel([this.historySize, 16]);
+            this.model = tf.sequential();
+            this.model.add(tf.layers.lstm({
+                units: 32, // Mehr Neuronen für komplexe Muster
+                inputShape: [this.historySize, 16],
+                returnSequences: false
+            }));
+            // Dropout gegen Overfitting (lernt nicht auswendig)
+            this.model.add(tf.layers.dropout({ rate: 0.2 }));
+            this.model.add(tf.layers.dense({ units: 2, activation: 'sigmoid' })); // Sigmoid zwingt Output auf 0-1
+            this.model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
         }
 
-        // Trainieren (Im Browser!)
-        // epochs: Wie oft er die Daten durchgeht
+        console.log("Brain: Starte Training (20 Epochen)...");
+        
+        // Training (Mehr Epochen für bessere Konvergenz)
         await this.model.fit(xs, ys, {
-            epochs: 5, 
+            epochs: 20, 
             batchSize: 32,
-            shuffle: true,
-            callbacks: {
-                onEpochEnd: (epoch, logs) => {
-                    console.log(`Epoch ${epoch+1}: Loss = ${logs.loss.toFixed(4)}`);
-                }
-            }
+            shuffle: true
         });
 
-        // Aufräumen
         xs.dispose();
         ys.dispose();
-        
         this.isTraining = false;
-        console.log("🧠 Training abgeschlossen. Modell ist scharf.");
         return true;
     }
 
-    // --- LIVE PREDICTION (Vorhersage) ---
+    // --- LIVE PROZESS ---
     process(inputObj) {
         if (this.isTraining || !this.model) return { safe:0, warn:0, danger:0 };
 
-        // 1. Vektor formatieren
-        const vector = this.flattenInput(inputObj);
+        // 1. Vektor holen und NORMALISIEREN
+        const rawVector = this.flattenInput(inputObj);
+        const normVector = this.normalizeVector(rawVector);
         
-        // 2. In Puffer schieben
-        this.inputBuffer.push(vector);
+        this.inputBuffer.push(normVector);
         if (this.inputBuffer.length > this.historySize) {
-            this.inputBuffer.shift(); // Ältestes raus
+            this.inputBuffer.shift(); 
         }
 
-        // Erst vorhersagen, wenn wir genug Geschichte haben (50 Frames)
         if (this.inputBuffer.length === this.historySize) {
             return this.runInference();
         }
 
-        return { safe: 1, warn: 0, danger: 0, status: "Buffering..." };
+        return { safe: 1, warn: 0, danger: 0 };
     }
 
     runInference() {
-        // Tensor aus dem Puffer erstellen
-        // tf.tidy räumt Speicher automatisch auf (wichtig im Browser!)
         const prediction = tf.tidy(() => {
-            const inputTensor = tf.tensor3d([this.inputBuffer]); // Shape [1, 50, 16]
-            const result = this.model.predict(inputTensor); // Output [1, 2]
-            return result.dataSync(); // Array [Pred_Prox, Pred_Kinetic]
+            const inputTensor = tf.tensor3d([this.inputBuffer]); 
+            const result = this.model.predict(inputTensor); 
+            return result.dataSync(); 
         });
 
-        const predProx = prediction[0];
-        const predKin = prediction[1];
+        // Output ist 0.0 bis 1.0 (wegen Sigmoid und Normalisierung)
+        const predProxNorm = prediction[0];
+        const predKinNorm = prediction[1];
 
-        // LOGIK: WAHRSCHEINLICHKEIT BERECHNEN
-        // Wir vergleichen die VORHERSAGE mit den Grenzwerten.
-        
+        // Rückrechnen in echte Werte für die Logik (Denormalisierung)
+        const predProx = this.denormalizeValue(predProxNorm, 9);
+        const predKin = this.denormalizeValue(predKinNorm, 4);
+
+        // Debug Ausgabe (damit du siehst was er vorhersagt)
+        // console.log(`Pred: Prox=${predProx.toFixed(1)}dBm, Kin=${predKin.toFixed(2)}`);
+
         let pSafe = 1.0;
         let pWarn = 0.0;
         let pDanger = 0.0;
-        let status = "OK";
 
-        // Fall 1: KI sagt Crash voraus (Hohe Kinetik)
-        if (predKin > 2.0) {
+        // KI Logik mit echten Grenzwerten
+        // Kinetic > 2.0 ist meist ein harter Schlag
+        // Proximity > -40 ist sehr nah
+        if (predKin > 2.5 || predProx > -35) {
             pDanger = 1.0; pSafe = 0.0;
-            status = "PRED: IMPACT!";
-        }
-        // Fall 2: KI sagt Annäherung voraus (Hohes Proximity)
-        else if (predProx > -50) { // Wenn wir näher als -50dBm kommen
-            // Skaliere Warnung je nach Nähe
-            pWarn = Math.min((predProx + 50) / 20, 1.0); // 0.0 bis 1.0
-            pSafe = 1.0 - pWarn;
-            status = `PRED: Proximity (${predProx.toFixed(1)})`;
-            if (predProx > -30) { pDanger = 1.0; pWarn = 0; pSafe=0; status="PRED: COLLISION"; }
+        } else if (predProx > -55) {
+            pWarn = 1.0; pSafe = 0.0;
         }
 
-        // Anomaly Check (Optional): Weicht die Vorhersage stark von der Realität ab?
-        // Das wäre "Unsupervised", aber wir verlassen uns hier auf die trainierte Vorhersage.
+        return { safe: pSafe, warn: pWarn, danger: pDanger };
+    }
 
-        return { safe: pSafe, warn: pWarn, danger: pDanger, status: status };
+    // --- HELPER: NORMALISIERUNG ---
+    calculateMinMax(data) {
+        // Initialisieren
+        this.normalization.min = [...data[0]];
+        this.normalization.max = [...data[0]];
+
+        for (let row of data) {
+            for (let i = 0; i < 16; i++) {
+                if (row[i] < this.normalization.min[i]) this.normalization.min[i] = row[i];
+                if (row[i] > this.normalization.max[i]) this.normalization.max[i] = row[i];
+            }
+        }
+        
+        // Puffer hinzufügen, damit neue Werte nicht sprengen
+        for(let i=0; i<16; i++) {
+            let span = this.normalization.max[i] - this.normalization.min[i];
+            if(span === 0) span = 1; // Division durch Null verhindern
+            this.normalization.min[i] -= span * 0.1; 
+            this.normalization.max[i] += span * 0.1;
+        }
+    }
+
+    normalizeVector(vector) {
+        return vector.map((val, i) => {
+            let min = this.normalization.min[i];
+            let max = this.normalization.max[i];
+            // Safe Division
+            if (max === min) return 0.5;
+            let norm = (val - min) / (max - min);
+            // Clamping (0-1)
+            if (norm < 0) norm = 0;
+            if (norm > 1) norm = 1;
+            return norm;
+        });
+    }
+
+    denormalizeValue(normVal, index) {
+        let min = this.normalization.min[index];
+        let max = this.normalization.max[index];
+        return normVal * (max - min) + min;
     }
 
     flattenInput(input) {
-        // MUSS exakt die gleiche Reihenfolge haben wie im Recorder!
         return [
             input.groupA.accSurge || 0, input.groupA.accSway || 0, input.groupA.accHeave || 0, 
-            input.groupA.gyroYaw || 0, input.groupA.kineticEnergy || 0, // Index 4 = Kinetic
+            input.groupA.gyroYaw || 0, input.groupA.kineticEnergy || 0,
             input.groupB.proximity || -100, input.groupB.stability || 0, input.groupB.density || 0, input.groupB.snr || -100,
-            input.groupC.proximity || -100, input.groupC.velocity || 0, input.groupC.count || 0, input.groupC.spread || 0, // Index 9 = C.Prox
+            input.groupC.proximity || -100, input.groupC.velocity || 0, input.groupC.count || 0, input.groupC.spread || 0,
             input.groupD.ratio || 0, input.groupD.ageGap || 0, input.groupD.latency || 0
         ];
     }
 }
+ 
