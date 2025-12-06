@@ -10,63 +10,52 @@
 
     <div class="container">
         <header>
-            <h1>Neural Node <span class="version">v1.0</span></h1>
+            <h1>Neural Node <span class="version">v1.1 Fusion</span></h1>
             <div class="controls">
-                <button id="btn-connect" class="primary-btn">Verbinden</button>
-                <span id="status-indicator" class="status disconnected">Getrennt</span>
+                <button id="btn-connect" class="primary-btn">System Starten</button>
+                <div id="status-indicator" class="status disconnected">Standby</div>
             </div>
         </header>
 
         <div id="dashboard" class="grid-container blurred">
-            <div class="card">
-                <h3>WiFi Spectrum</h3>
-                <div class="metric">
-                    <span class="label">AP Count</span>
-                    <span class="value" id="val-wifi-count">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Noise Floor</span>
-                    <span class="value" id="val-wifi-rssi">--</span> <span class="unit">dBm</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Congestion</span>
-                    <span class="value" id="val-wifi-cong">--</span>
-                </div>
+            
+            <div class="card physics">
+                <h3>A. Phone Physics</h3>
+                <div class="metric"><span class="label">N1: Acc X (Surge)</span> <span class="value" id="n1-acc-x">0.00</span></div>
+                <div class="metric"><span class="label">N2: Acc Y (Sway)</span> <span class="value" id="n2-acc-y">0.00</span></div>
+                <div class="metric"><span class="label">N3: Acc Z (Heave)</span> <span class="value" id="n3-acc-z">0.00</span></div>
+                <div class="metric"><span class="label">N4: Gyro Z (Yaw)</span> <span class="value" id="n4-gyro-z">0.00</span></div>
+                <div class="metric"><span class="label">N5: Jerk (Impact)</span> <span class="value" id="n5-jerk">0.00</span></div>
             </div>
 
-            <div class="card">
-                <h3>BLE Environment</h3>
-                <div class="metric">
-                    <span class="label">Device Count</span>
-                    <span class="value" id="val-ble-count">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Proximity Peak</span>
-                    <span class="value" id="val-ble-max">--</span> <span class="unit">dBm</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Traffic Index</span>
-                    <span class="value" id="val-ble-traffic">--</span>
-                </div>
+            <div class="card spectrum">
+                <h3>B. WiFi & GPS</h3>
+                <div class="metric"><span class="label">N6: WiFi Count</span> <span class="value text-esp" id="n6-wifi-count">--</span></div>
+                <div class="metric"><span class="label">N7: Noise Floor</span> <span class="value text-esp" id="n7-wifi-rssi">--</span></div>
+                <div class="metric"><span class="label">N8: Congestion</span> <span class="value text-esp" id="n8-wifi-cong">--</span></div>
+                <div class="metric"><span class="label">N9: GPS Speed</span> <span class="value" id="n9-gps-speed">0.0</span></div>
+            </div>
+
+            <div class="card env">
+                <h3>C. Dynamic Env</h3>
+                <div class="metric"><span class="label">N10: BLE Count</span> <span class="value text-esp" id="n10-ble-count">--</span></div>
+                <div class="metric"><span class="label">N11: Proximity</span> <span class="value text-esp" id="n11-ble-rssi">--</span></div>
+                <div class="metric"><span class="label">N12: Traffic Idx</span> <span class="value text-esp" id="n12-ble-traffic">--</span></div>
+                <div class="metric"><span class="label">N13: Audio RMS</span> <span class="value" id="n13-audio">0.00</span></div>
             </div>
 
             <div class="card meta-card">
-                <h3>Sync & Meta</h3>
-                <div class="metric">
-                    <span class="label">Device TS</span>
-                    <span class="value small" id="val-timestamp">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Latency</span>
-                    <span class="value small" id="val-latency">-- ms</span>
-                </div>
+                <h3>D. System State</h3>
+                <div class="metric"><span class="label">N14: Scan Age</span> <span class="value text-esp" id="n14-age">0 ms</span></div>
+                <div class="metric"><span class="label">N15: Confidence</span> <span class="value" id="n15-conf">1.0</span></div>
+                <div class="metric"><span class="label">N16: Battery</span> <span class="value" id="n16-batt">--%</span></div>
             </div>
         </div>
 
         <div class="debugger-section">
-            <h3>System Debugger & Raw Hex</h3>
+            <h3>Fusion Log</h3>
             <div id="console-log" class="console">
-                <div class="log-entry system">System bereit. Warten auf Verbindung...</div>
+                <div class="log-entry system">Warte auf Start...</div>
             </div>
         </div>
     </div>
