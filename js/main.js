@@ -5,211 +5,174 @@ import { UI } from './ui.js';
 import { DataRecorder } from './recorder.js';
 import { NeuralBrain } from './brain.js';
 
-// --- SYSTEM INITIALISIERUNG ---
+// --- SYSTEM INITIALIZATION ---
 const recorder = new DataRecorder();
 const brain = new NeuralBrain();
 
-// Globaler State Container für den 16-Dimensionen Vektor
+// Global State
 let neuralInput = { 
-    groupA: {}, // Physik (Handy)
-    groupB: {}, // Infra (ESP)
-    groupC: {}, // Gefahr (ESP)
-    groupD: {}  // Meta (Computed)
+    groupA: {}, groupB: {}, groupC: {}, groupD: {} 
 };
 
-// Speicher für Deltas (um Veränderungen zu messen)
+// Delta Memory
 let lastEspState = { 
-    timestamp: 0, 
-    wifi_rssi: 0, 
-    ble_rssi: 0, 
-    lastReceived: 0 
+    timestamp: 0, wifi_rssi: 0, ble_rssi: 0, lastReceived: 0 
 };
+
+// Learning Config
+const LEARNING_DURATION_MS = 120000; // 2 Minutes
+let learningTimer = null;
+let countdownInterval = null;
 
 // --- STARTUP ---
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Buttons suchen (Sicherheits-Check mit Fallback)
+    // Buttons
     const btnConnect = document.getElementById('btn-connect');
-    
-    // WICHTIG: Sucht nach 'btn-learn' ODER 'btn-record', um den Absturz zu verhindern
     const btnLearn = document.getElementById('btn-learn') || document.getElementById('btn-record');
 
-    // Bluetooth Manager konfigurieren
+    // BLE Manager
     const ble = new BLEManager(handleEspData, UI.log, UI.setStatus);
 
-    // 2. LOGIK FÜR DEN LERN-BUTTON (Training)
+    // 1. AUTO-LEARNING LOGIC (2 Minute Timer)
     if (btnLearn) {
         btnLearn.addEventListener('click', async () => {
             
-            // A) Start Aufnahme
-            if (!recorder.isRecording) {
-                recorder.start(); 
-                btnLearn.textContent = "⏳ Aufnehmen...";
-                btnLearn.classList.add('recording');
-                UI.log("Sammle Trainingsdaten... Bitte normal fahren!", "info");
+            // IF IDLE -> START 2 MINUTE LEARNING
+            if (!recorder.isRecording && !brain.isTraining) {
+                startAutoLearning(btnLearn);
             } 
-            
-            // B) Stopp & Training
-            else {
-                recorder.stop(); // Daten liegen jetzt in recorder.buffer
-                btnLearn.textContent = "⚙️ Training...";
-                btnLearn.classList.remove('recording');
-                
-                // UI Feedback geben
-                UI.log(`Starte LSTM Training mit ${recorder.buffer.length} Datensätzen...`, "info");
-                
-                // Daten aufbereiten: Wir brauchen nur die Spalten 1-16 (ohne Zeitstempel/Label)
-                // recorder.buffer Format: [Time, N1, N2 ... N16, Label]
-                const trainingData = recorder.buffer.map(row => row.slice(1, 17));
-
-                // Kurze Verzögerung, damit der Browser den Button-Text rendern kann
-                setTimeout(async () => {
-                    // Das Brain trainiert sich selbst im Browser
-                    const success = await brain.train(trainingData);
-                    
-                    if (success) {
-                        btnLearn.textContent = "✅ AI Aktiv";
-                        btnLearn.classList.add('active-brain'); // Grün
-                        UI.log("Training abgeschlossen. Vorhersage (Prediction) aktiv.", "success");
-                    } else {
-                        btnLearn.textContent = "❌ Fehler";
-                        UI.log("Training fehlgeschlagen (zu wenig Daten?)", "error");
-                    }
-                }, 50);
+            // IF RECORDING -> MANUAL ABORT (Optional safety)
+            else if (recorder.isRecording) {
+                stopAutoLearning(btnLearn, false); // False = Aborted
             }
         });
     } else {
-        console.error("CRITICAL: Lern-Button nicht im HTML gefunden! Prüfe IDs.");
-        UI.log("GUI Fehler: Button fehlt in index.html", "error");
+        console.error("CRITICAL: Learn button not found!");
+        UI.log("GUI Error: Button missing.", "error");
     }
 
-    // 3. LOGIK FÜR VERBINDEN
+    // 2. CONNECT LOGIC
     if (btnConnect) {
         btnConnect.addEventListener('click', async () => {
-            // Handy Sensoren brauchen User-Interaktion zum Starten
             try { 
                 await PhoneSensors.init(); 
-                UI.log("Handy-Sensoren bereit.", "success");
-            } catch (e) { 
-                console.warn(e); 
-                UI.log("Sensor-Fehler (siehe Konsole)", "warning");
-            }
-            
-            // BLE Verbindung starten
+                UI.log("Sensoren bereit.", "success");
+            } catch (e) { console.warn(e); }
             ble.connect();
-            
-            // Den Main-Loop starten
             requestAnimationFrame(fusionLoop);
         });
     }
 });
 
-// --- DATENVERARBEITUNG ESP32 ---
+// --- HELPER FUNCTIONS FOR LEARNING ---
+
+function startAutoLearning(btn) {
+    recorder.start();
+    btn.classList.add('recording');
+    
+    UI.log("🚨 LERN-MODUS AKTIV: Fahre 2 Minuten normal!", "info");
+    
+    let timeLeft = LEARNING_DURATION_MS / 1000;
+    
+    // Countdown Timer UI
+    countdownInterval = setInterval(() => {
+        timeLeft--;
+        btn.textContent = `⏳ ${timeLeft}s`;
+        if(timeLeft <= 0) clearInterval(countdownInterval);
+    }, 1000);
+
+    // Auto-Stop Timer
+    learningTimer = setTimeout(() => {
+        stopAutoLearning(btn, true); // True = Success/Time Done
+    }, LEARNING_DURATION_MS);
+}
+
+function stopAutoLearning(btn, completed) {
+    // Clear Timers
+    clearTimeout(learningTimer);
+    clearInterval(countdownInterval);
+    
+    recorder.stop(); // Stop recording, data is in buffer
+    btn.classList.remove('recording');
+
+    if (!completed) {
+        btn.textContent = "🧠 Lernen (Start)";
+        UI.log("Lernvorgang abgebrochen.", "warning");
+        return;
+    }
+
+    // Start Training Sequence
+    btn.textContent = "⚙️ Training...";
+    UI.log(`Zeit um! Trainiere mit ${recorder.buffer.length} Datensätzen...`, "info");
+
+    const trainingData = recorder.buffer.map(row => row.slice(1, 17));
+
+    // Async Training
+    setTimeout(async () => {
+        const success = await brain.train(trainingData);
+        if (success) {
+            btn.textContent = "✅ AI Aktiv";
+            btn.classList.add('active-brain'); 
+            UI.log("System Kalibriert & Scharf geschaltet.", "success");
+        } else {
+            btn.textContent = "❌ Fehler";
+            UI.log("Training fehlgeschlagen.", "error");
+        }
+    }, 100);
+}
+
+// --- DATA PROCESSING (unchanged logic) ---
 function handleEspData(dataView) {
     try {
         const now = Date.now();
         const raw = parsePacket(dataView);
         if(!raw) return;
 
-        // --- COMPUTED METRICS (Gruppe D Fix) ---
-        
-        // 1. Human/Machine Ratio
         let ratio = 0.0;
-        if (raw.infra_density > 0) {
-            ratio = raw.object_count / raw.infra_density;
-        }
+        if (raw.infra_density > 0) ratio = raw.object_count / raw.infra_density;
 
-        // 2. Age Gap (Wie alt sind die WiFi Daten im Vergleich zu BLE?)
         let ageGap = 0;
         if (lastEspState.timestamp > 0) {
             let delta = raw.timestamp - lastEspState.timestamp;
-            // Filter für unrealistische Sprünge (z.B. bei Reboot)
             if (delta > 0 && delta < 10000) ageGap = delta;
         }
 
-        // 3. Latency (Jitter-Messung)
-        // Zeit seit dem letzten JS-Update
         let latency = 0;
-        if (lastEspState.lastReceived > 0) {
-            latency = now - lastEspState.lastReceived;
-        }
+        if (lastEspState.lastReceived > 0) latency = now - lastEspState.lastReceived;
 
-        // --- DELTA BERECHNUNGEN (Trend) ---
-        
-        // Stability: Wie sehr schwankt das WiFi Signal?
         let stability = Math.abs(raw.env_snr - (lastEspState.wifi_rssi || raw.env_snr));
-        
-        // Velocity: Wie schnell ändert sich das BLE Signal (Annäherung)?
         let velocity = raw.object_proximity - (lastEspState.ble_rssi || raw.object_proximity);
 
-        // --- GLOBAL UPDATE ---
-        
-        // Gruppe B (Infrastruktur)
-        neuralInput.groupB = { 
-            proximity: raw.infra_proximity, 
-            stability: stability, 
-            density:   raw.infra_density, 
-            snr:       raw.env_snr 
-        };
-
-        // Gruppe C (Reflex)
-        neuralInput.groupC = { 
-            proximity: raw.object_proximity, 
-            velocity:  velocity, 
-            count:     raw.object_count, 
-            spread:    raw.object_spread 
-        };
-
-        // Gruppe D (Meta)
-        neuralInput.groupD = { 
-            ratio:     ratio, 
-            ageGap:    ageGap, 
-            latency:   latency 
-        };
-
-        // State speichern für nächsten Loop
         lastEspState.timestamp = raw.timestamp;
         lastEspState.lastReceived = now;
         lastEspState.wifi_rssi = raw.env_snr;
         lastEspState.ble_rssi = raw.object_proximity;
 
-    } catch (e) { 
-        console.error("Fusion Error:", e); 
-    }
+        neuralInput.groupB = { proximity: raw.infra_proximity, stability: stability, density: raw.infra_density, snr: raw.env_snr };
+        neuralInput.groupC = { proximity: raw.object_proximity, velocity: velocity, count: raw.object_count, spread: raw.object_spread };
+        neuralInput.groupD = { ratio: ratio, ageGap: ageGap, latency: latency };
+
+    } catch (e) { console.error("Fusion Error:", e); }
 }
 
-// --- MAIN LOOP (60 FPS) ---
+// --- MAIN LOOP ---
 function fusionLoop() {
-    // 1. Gruppe A (Physik) immer live vom Handy holen
     neuralInput.groupA = PhoneSensors.data;
-
-    // 2. UI Aktualisieren (Alle 16 Werte anzeigen)
     UI.updateNeuralVector(neuralInput);
 
-    // 3. AI Vorhersage & Aufzeichnung
-    // Nur ausführen, wenn wir valide Daten vom ESP haben (Gruppe B ist da)
+    // AI Prediction & Recording
     if (neuralInput.groupB.proximity !== undefined) {
-        
-        // A) Vorhersage holen (Safe / Warn / Danger)
         const prediction = brain.process(neuralInput);
         
-        // B) Balken aktualisieren
-        updateBars(prediction);
+        const safeBar = document.getElementById('out-safe');
+        const warnBar = document.getElementById('out-warn');
+        const dangBar = document.getElementById('out-danger');
 
-        // C) Wenn Aufnahme läuft -> Speichern
+        if(safeBar) safeBar.style.width = (prediction.safe * 100) + "%";
+        if(warnBar) warnBar.style.width = (prediction.warn * 100) + "%";
+        if(dangBar) dangBar.style.width = (prediction.danger * 100) + "%";
+
         recorder.record(neuralInput);
     }
-    
-    // Endlosschleife
     requestAnimationFrame(fusionLoop);
-}
-
-// Hilfsfunktion für die Balken
-function updateBars(prediction) {
-    const safeBar = document.getElementById('out-safe');
-    const warnBar = document.getElementById('out-warn');
-    const dangBar = document.getElementById('out-danger');
-
-    if(safeBar) safeBar.style.width = (prediction.safe * 100) + "%";
-    if(warnBar) warnBar.style.width = (prediction.warn * 100) + "%";
-    if(dangBar) dangBar.style.width = (prediction.danger * 100) + "%";
 }
